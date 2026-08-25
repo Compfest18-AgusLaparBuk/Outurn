@@ -8,7 +8,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0010_integrations_and_policy_runtime"
+revision = "0010_integrations_runtime"
 down_revision = "0009_document_extraction_result"
 branch_labels = None
 depends_on = None

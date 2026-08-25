@@ -4,7 +4,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0012_retention_legal_holds"
-down_revision = "0011_policy_scoring_and_api_idempotency"
+down_revision = "0011_policy_scoring"
 branch_labels = None
 depends_on = None
 

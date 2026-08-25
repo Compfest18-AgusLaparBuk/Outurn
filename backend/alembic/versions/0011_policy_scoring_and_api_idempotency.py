@@ -7,8 +7,8 @@ from uuid import uuid4
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0011_policy_scoring_and_api_idempotency"
-down_revision = "0010_integrations_and_policy_runtime"
+revision = "0011_policy_scoring"
+down_revision = "0010_integrations_runtime"
 branch_labels = None
 depends_on = None
 
