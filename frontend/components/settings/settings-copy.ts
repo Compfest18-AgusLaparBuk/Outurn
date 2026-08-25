@@ -1,7 +1,11 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { languageSnapshot, subscribeToLanguage, type AppLanguage } from "@/lib/locale";
+import {
+  languageSnapshot,
+  subscribeToLanguage,
+  type AppLanguage,
+} from "@/lib/locale";
 
 /**
  * Kelola keeps established operational terms such as API, Webhooks, Invoice,
@@ -10,60 +14,72 @@ import { languageSnapshot, subscribeToLanguage, type AppLanguage } from "@/lib/l
 export const settingsCopy = {
   id: {
     workspaceSettings: "Pengaturan ruang kerja",
-    workspaceSettingsDescription: "Atur cara tim menyiapkan, meninjau, dan melepas pengiriman.",
+    workspaceSettingsDescription:
+      "Atur cara tim menyiapkan, meninjau, dan melepas pengiriman.",
     configuration: "Konfigurasi",
-    configurationDescription: "Setiap perubahan disimpan sebagai pengaturan ruang kerja dan dicatat di Log aktivitas.",
+    configurationDescription:
+      "Setiap perubahan disimpan sebagai pengaturan ruang kerja dan dicatat di Log aktivitas.",
     general: "Umum",
     generalDescription: "Nama ruang kerja, bahasa, zona waktu, dan mata uang.",
-    reviewPolicy: "Kebijakan review",
+    reviewPolicy: "Kebijakan peninjauan",
     reviewPolicyDescription: "SLA dan aturan persetujuan sebelum pelepasan.",
-    reviewPolicyPageDescription: "Tentukan berapa lama pekerjaan dapat menunggu dan kapan pelepasan berisiko tinggi memerlukan persetujuan kedua.",
+    reviewPolicyPageDescription:
+      "Tentukan berapa lama pekerjaan dapat menunggu dan kapan pelepasan berisiko tinggi memerlukan persetujuan kedua.",
     lowPrioritySla: "SLA prioritas rendah (jam)",
     mediumPrioritySla: "SLA prioritas sedang (jam)",
     highPrioritySla: "SLA prioritas tinggi (jam)",
     criticalPrioritySla: "SLA prioritas kritis (jam)",
     requireDecisionReason: "Wajibkan alasan untuk setiap keputusan",
-    requireHighRiskApproval: "Wajibkan persetujuan kedua untuk pelepasan berisiko tinggi",
-    requireCriticalExceptionApproval: "Wajibkan persetujuan kedua untuk pengecualian kritis",
+    requireHighRiskApproval:
+      "Wajibkan persetujuan kedua untuk pelepasan berisiko tinggi",
+    requireCriticalExceptionApproval:
+      "Wajibkan persetujuan kedua untuk pengecualian kritis",
     savePolicy: "Simpan kebijakan",
     policySaved: "Kebijakan tersimpan",
-    reviewRules: "Aturan review",
-    reviewRulesPageDescription: "Pahami temuan yang menghentikan pengiriman dan kapan pelepasan memerlukan persetujuan pengguna lain.",
-    openReviewPolicy: "Buka kebijakan review",
-    currentReviewRules: "Aturan review saat ini",
-    currentReviewRulesHint: "Aturan ini mencerminkan kebijakan ruang kerja yang tersimpan.",
+    reviewRules: "Aturan peninjauan",
+    reviewRulesPageDescription:
+      "Pahami temuan yang menghentikan pengiriman dan kapan pelepasan memerlukan persetujuan pengguna lain.",
+    openReviewPolicy: "Buka kebijakan peninjauan",
+    currentReviewRules: "Aturan peninjauan saat ini",
+    currentReviewRulesHint:
+      "Aturan ini mencerminkan kebijakan ruang kerja yang tersimpan.",
     requiredEvidenceMissing: "Bukti wajib belum tersedia",
     dangerousGoodsIncomplete: "Detail barang berbahaya belum lengkap",
     highOrCriticalRelease: "Pelepasan berisiko tinggi atau kritis",
     decisionWithoutReason: "Keputusan pelepasan tanpa alasan",
-    needsReview: "Perlu review",
-    hold: "HOLD",
+    needsReview: "Perlu ditinjau",
+    hold: "Ditahan",
     secondApproval: "Persetujuan kedua",
-    reviewerDecision: "Keputusan reviewer",
+    reviewerDecision: "Keputusan peninjau",
     notAllowed: "Tidak diizinkan",
     allowed: "Diizinkan",
     reviewPolicyLoadError: "Kebijakan review tersimpan tidak dapat dimuat.",
     documentPolicy: "Kebijakan dokumen",
-    documentPolicyDescription: "Bukti yang diizinkan dan kebijakan penyimpanan dokumen.",
+    documentPolicyDescription:
+      "Bukti yang diizinkan dan kebijakan penyimpanan dokumen.",
     notifications: "Notifikasi",
     notificationsDescription: "Peringatan ruang kerja dan preferensi pribadi.",
-    notificationsPageDescription: "Pilih peristiwa operasional yang perlu diterima oleh tim.",
+    notificationsPageDescription:
+      "Pilih peristiwa operasional yang perlu diterima oleh tim.",
     taskAssigned: "Tugas ditetapkan",
     criticalException: "Pengecualian kritis",
     taskOverdue: "Tugas melewati tenggat",
     evidenceRequested: "Bukti diminta",
-    releaseNeedsReview: "Pelepasan perlu direview",
-    notificationPreferencesHint: "Preferensi ini disimpan di ruang kerja dan dapat disesuaikan per pengguna pada tahap berikutnya.",
+    releaseNeedsReview: "Pelepasan perlu ditinjau",
+    notificationPreferencesHint:
+      "Preferensi ini disimpan di ruang kerja dan dapat disesuaikan per pengguna pada tahap berikutnya.",
     saveNotifications: "Simpan notifikasi",
     notificationsSaved: "Notifikasi tersimpan",
     retention: "Retensi data",
     retentionDescription: "Riwayat audit, dokumen, proses, dan Webhooks.",
-    retentionPageDescription: "Atur berapa lama riwayat operasional tetap tersedia bagi tim.",
+    retentionPageDescription:
+      "Atur berapa lama riwayat operasional tetap tersedia bagi tim.",
     activityHistoryDays: "Riwayat aktivitas (hari)",
     documentMetadataDays: "Metadata dokumen (hari)",
     processingHistoryDays: "Riwayat pemrosesan (hari)",
     deliveryHistoryDays: "Riwayat delivery (hari)",
-    retentionHint: "Kontrol retensi adalah catatan kebijakan. Aktifkan proses cleanup terjadwal sebelum menghapus bukti historis.",
+    retentionHint:
+      "Kontrol retensi adalah catatan kebijakan. Aktifkan proses cleanup terjadwal sebelum menghapus bukti historis.",
     saveRetention: "Simpan retensi data",
     retentionSaved: "Retensi data tersimpan",
     security: "Keamanan",
@@ -76,19 +92,23 @@ export const settingsCopy = {
     serverSideSessions: "Sesi server-side",
     peopleAndAccess: "Pengguna & akses",
     rolesPermissions: "Peran & izin",
-    generalPageDescription: "Atur detail ruang kerja yang dilihat tim saat menangani pengiriman.",
+    generalPageDescription:
+      "Atur detail ruang kerja yang dilihat tim saat menangani pengiriman.",
     workspaceName: "Nama ruang kerja",
     locale: "Bahasa",
     saveChanges: "Simpan perubahan",
     saved: "Tersimpan",
-    documentPageDescription: "Atur bukti yang perlu tersedia sebelum pengiriman dapat diproses.",
+    documentPageDescription:
+      "Atur bukti yang perlu tersedia sebelum pengiriman dapat diproses.",
     requireCommercialInvoice: "Wajibkan Commercial Invoice",
     requirePackingList: "Wajibkan Packing List",
     requireDeliveryOrder: "Wajibkan Surat Jalan",
     allowReplacementHistory: "Izinkan versi pengganti dengan riwayat",
-    documentPolicyHint: "Upload tetap dibatasi dan setiap versi pengganti mempertahankan versi sebelumnya di catatan bukti.",
+    documentPolicyHint:
+      "Upload tetap dibatasi dan setiap versi pengganti mempertahankan versi sebelumnya di catatan bukti.",
     saveDocumentPolicy: "Simpan kebijakan dokumen",
-    securityPageDescription: "Tinjau perlindungan yang menjaga akses ruang kerja dan keputusan tetap dapat dipertanggungjawabkan.",
+    securityPageDescription:
+      "Tinjau perlindungan yang menjaga akses ruang kerja dan keputusan tetap dapat dipertanggungjawabkan.",
     authentication: "Autentikasi",
     sessions: "Sesi",
     opaqueServerSessions: "Tidak terbaca, server-side, dan dapat dicabut",
@@ -97,24 +117,31 @@ export const settingsCopy = {
     secureCookie: "Secure cookie",
     readOnlyDeploymentSetting: "Pengaturan deployment read-only",
     access: "Akses",
-    accessPageDescription: "Pastikan pihak yang tepat terlibat dalam menyiapkan, mereview, dan menyetujui pengiriman.",
+    accessPageDescription:
+      "Pastikan pihak yang tepat terlibat dalam menyiapkan, meninjau, dan menyetujui pengiriman.",
     accessControls: "Kontrol akses",
     accessControlsHint: "Pilih area akses ruang kerja untuk melanjutkan.",
-    peopleAccessDescription: "Tambah atau nonaktifkan anggota ruang kerja dan tetapkan tanggung jawabnya.",
-    rolesAccessDescription: "Lihat tindakan yang dapat dilakukan operator, reviewer, dan administrator.",
-    securityAccessDescription: "Tinjau perlindungan login, sesi, dan akses ruang kerja.",
+    peopleAccessDescription:
+      "Tambah atau nonaktifkan anggota ruang kerja dan tetapkan tanggung jawabnya.",
+    rolesAccessDescription:
+      "Lihat tindakan yang dapat dilakukan operator, reviewer, dan administrator.",
+    securityAccessDescription:
+      "Tinjau perlindungan login, sesi, dan akses ruang kerja.",
     responsibility: "Tanggung jawab",
     clearOwnership: "Kepemilikan yang jelas",
-    ownershipHint: "Operator menyiapkan bukti. Reviewer menyelesaikan temuan dan menyetujui keputusan. Administrator mengelola akses ruang kerja.",
+    ownershipHint:
+      "Operator menyiapkan bukti. Reviewer menyelesaikan temuan dan menyetujui keputusan. Administrator mengelola akses ruang kerja.",
     organizationScoping: "Cakupan organisasi",
     membershipCheckedServerSide: "Keanggotaan diperiksa server-side",
     apiAccess: "Akses API",
     serviceAccountsAndTokens: "Service accounts dan token yang dihash",
     securityEvents: "Peristiwa keamanan",
     recordedInActivityLog: "Dicatat di Log aktivitas",
-    peoplePageDescription: "Kelola pihak yang dapat menyiapkan, mereview, menyetujui, dan mengadministrasikan keputusan pengiriman.",
+    peoplePageDescription:
+      "Kelola pihak yang dapat menyiapkan, meninjau, menyetujui, dan mengadministrasikan keputusan pengiriman.",
     administratorsOnly: "Pengguna & akses hanya tersedia untuk administrator.",
-    rolesPermissionsPageDescription: "Peran yang dikelola sistem menjaga tanggung jawab pengiriman tetap jelas tanpa membuka pengeditan kebijakan kustom yang tidak aman.",
+    rolesPermissionsPageDescription:
+      "Peran yang dikelola sistem menjaga tanggung jawab pengiriman tetap jelas tanpa membuka pengeditan kebijakan kustom yang tidak aman.",
     permission: "Izin",
     viewShipmentCases: "Lihat kasus pengiriman",
     createShipmentCases: "Buat kasus pengiriman",
@@ -132,7 +159,7 @@ export const settingsCopy = {
     canSignInNow: "Dapat masuk sekarang",
     operators: "Operator",
     prepareShipmentWork: "Menyiapkan pekerjaan pengiriman",
-    reviewers: "Reviewer",
+    reviewers: "Peninjau",
     reviewAndDecide: "Meninjau dan memutuskan",
     administrators: "Administrator",
     manageWorkspaceAccess: "Mengelola akses ruang kerja",
@@ -151,34 +178,41 @@ export const settingsCopy = {
     noPeopleYet: "Belum ada pengguna",
     addOperatorReviewer: "Tambahkan operator atau reviewer untuk memulai.",
     addPersonTitle: "Tambah pengguna",
-    addPersonDescription: "Buat akun dengan password sementara. Pengguna wajib menggantinya saat pertama kali masuk.",
+    addPersonDescription:
+      "Buat akun dengan password sementara. Pengguna wajib menggantinya saat pertama kali masuk.",
     displayName: "Nama tampilan",
     temporaryPassword: "Password sementara",
-    temporaryPasswordHint: "Pengguna harus membuat password baru saat pertama kali masuk.",
+    temporaryPasswordHint:
+      "Pengguna harus membuat password baru saat pertama kali masuk.",
     cancel: "Batal",
     adding: "Menambahkan…",
   },
   en: {
     workspaceSettings: "Workspace settings",
-    workspaceSettingsDescription: "Configure how your team prepares, reviews, and releases shipments.",
+    workspaceSettingsDescription:
+      "Configure how your team prepares, reviews, and releases shipments.",
     configuration: "Configuration",
-    configurationDescription: "Every change is saved as a workspace setting and recorded in the Activity log.",
+    configurationDescription:
+      "Every change is saved as a workspace setting and recorded in the Activity log.",
     general: "General",
     generalDescription: "Workspace name, locale, timezone, and currency.",
     reviewPolicy: "Review policy",
     reviewPolicyDescription: "SLA and approval rules before release.",
-    reviewPolicyPageDescription: "Define how long work can wait and when a high-risk release needs a second approval.",
+    reviewPolicyPageDescription:
+      "Define how long work can wait and when a high-risk release needs a second approval.",
     lowPrioritySla: "Low priority SLA (hours)",
     mediumPrioritySla: "Medium priority SLA (hours)",
     highPrioritySla: "High priority SLA (hours)",
     criticalPrioritySla: "Critical priority SLA (hours)",
     requireDecisionReason: "Require a reason for every decision",
     requireHighRiskApproval: "Require second approval for high-risk release",
-    requireCriticalExceptionApproval: "Require second approval for critical exceptions",
+    requireCriticalExceptionApproval:
+      "Require second approval for critical exceptions",
     savePolicy: "Save policy",
     policySaved: "Policy saved",
     reviewRules: "Review rules",
-    reviewRulesPageDescription: "Understand which findings pause a shipment and when another person must approve a release.",
+    reviewRulesPageDescription:
+      "Understand which findings pause a shipment and when another person must approve a release.",
     openReviewPolicy: "Open review policy",
     currentReviewRules: "Current review rules",
     currentReviewRulesHint: "These rules reflect the saved workspace policy.",
@@ -194,26 +228,31 @@ export const settingsCopy = {
     allowed: "Allowed",
     reviewPolicyLoadError: "The saved review policy could not be loaded.",
     documentPolicy: "Document policy",
-    documentPolicyDescription: "Allowed evidence and document retention policy.",
+    documentPolicyDescription:
+      "Allowed evidence and document retention policy.",
     notifications: "Notifications",
     notificationsDescription: "Workspace alerts and personal preferences.",
-    notificationsPageDescription: "Choose which operational events should reach your team.",
+    notificationsPageDescription:
+      "Choose which operational events should reach your team.",
     taskAssigned: "Task assigned",
     criticalException: "Critical exception",
     taskOverdue: "Task overdue",
     evidenceRequested: "Evidence requested",
     releaseNeedsReview: "Release needs review",
-    notificationPreferencesHint: "These preferences are stored with the workspace and can be refined per person later.",
+    notificationPreferencesHint:
+      "These preferences are stored with the workspace and can be refined per person later.",
     saveNotifications: "Save notifications",
     notificationsSaved: "Notifications saved",
     retention: "Data retention",
     retentionDescription: "Audit, document, job, and webhook history.",
-    retentionPageDescription: "Set how long operational history remains available to your team.",
+    retentionPageDescription:
+      "Set how long operational history remains available to your team.",
     activityHistoryDays: "Activity history (days)",
     documentMetadataDays: "Document metadata (days)",
     processingHistoryDays: "Processing history (days)",
     deliveryHistoryDays: "Delivery history (days)",
-    retentionHint: "Retention controls are policy records. Enable a scheduled cleanup job before deleting historical evidence.",
+    retentionHint:
+      "Retention controls are policy records. Enable a scheduled cleanup job before deleting historical evidence.",
     saveRetention: "Save retention",
     retentionSaved: "Retention saved",
     security: "Security",
@@ -226,19 +265,23 @@ export const settingsCopy = {
     serverSideSessions: "Server-side sessions",
     peopleAndAccess: "People & access",
     rolesPermissions: "Roles & permissions",
-    generalPageDescription: "Set the workspace details your team sees while working on shipment cases.",
+    generalPageDescription:
+      "Set the workspace details your team sees while working on shipment cases.",
     workspaceName: "Workspace name",
     locale: "Locale",
     saveChanges: "Save changes",
     saved: "Saved",
-    documentPageDescription: "Set the evidence your team expects before a shipment can move forward.",
+    documentPageDescription:
+      "Set the evidence your team expects before a shipment can move forward.",
     requireCommercialInvoice: "Require a commercial invoice",
     requirePackingList: "Require a packing list",
     requireDeliveryOrder: "Require a delivery order",
     allowReplacementHistory: "Allow replacement versions with history",
-    documentPolicyHint: "Uploads remain bounded and every replacement keeps the previous version visible in the evidence record.",
+    documentPolicyHint:
+      "Uploads remain bounded and every replacement keeps the previous version visible in the evidence record.",
     saveDocumentPolicy: "Save document policy",
-    securityPageDescription: "Review the protections that keep workspace access and decisions accountable.",
+    securityPageDescription:
+      "Review the protections that keep workspace access and decisions accountable.",
     authentication: "Authentication",
     sessions: "Sessions",
     opaqueServerSessions: "Opaque, server-side, revocable",
@@ -247,24 +290,31 @@ export const settingsCopy = {
     secureCookie: "Secure cookie",
     readOnlyDeploymentSetting: "Read-only deployment setting",
     access: "Access",
-    accessPageDescription: "Keep the right people involved in preparing, reviewing, and approving shipment cases.",
+    accessPageDescription:
+      "Keep the right people involved in preparing, reviewing, and approving shipment cases.",
     accessControls: "Access controls",
     accessControlsHint: "Choose a workspace access area to continue.",
-    peopleAccessDescription: "Add or deactivate workspace members and assign their responsibility.",
-    rolesAccessDescription: "See what operators, reviewers, and administrators can do.",
-    securityAccessDescription: "Review sign-in, session, and workspace access protections.",
+    peopleAccessDescription:
+      "Add or deactivate workspace members and assign their responsibility.",
+    rolesAccessDescription:
+      "See what operators, reviewers, and administrators can do.",
+    securityAccessDescription:
+      "Review sign-in, session, and workspace access protections.",
     responsibility: "Responsibility",
     clearOwnership: "Clear ownership",
-    ownershipHint: "Operators prepare evidence. Reviewers resolve findings and approve decisions. Administrators control workspace access.",
+    ownershipHint:
+      "Operators prepare evidence. Reviewers resolve findings and approve decisions. Administrators control workspace access.",
     organizationScoping: "Organization scoping",
     membershipCheckedServerSide: "Membership checked server-side",
     apiAccess: "API access",
     serviceAccountsAndTokens: "Service accounts and hashed tokens",
     securityEvents: "Security events",
     recordedInActivityLog: "Recorded in Activity log",
-    peoplePageDescription: "Manage who can prepare, review, approve, and administer shipment decisions.",
+    peoplePageDescription:
+      "Manage who can prepare, review, approve, and administer shipment decisions.",
     administratorsOnly: "People & access is only available to administrators.",
-    rolesPermissionsPageDescription: "System-managed roles keep shipment responsibilities clear without exposing unsafe custom policy editing.",
+    rolesPermissionsPageDescription:
+      "System-managed roles keep shipment responsibilities clear without exposing unsafe custom policy editing.",
     permission: "Permission",
     viewShipmentCases: "View shipment cases",
     createShipmentCases: "Create shipment cases",
@@ -301,16 +351,22 @@ export const settingsCopy = {
     noPeopleYet: "No people yet",
     addOperatorReviewer: "Add an operator or reviewer to begin.",
     addPersonTitle: "Add person",
-    addPersonDescription: "Create an account with a temporary password. The person must change it after first sign-in.",
+    addPersonDescription:
+      "Create an account with a temporary password. The person must change it after first sign-in.",
     displayName: "Display name",
     temporaryPassword: "Temporary password",
-    temporaryPasswordHint: "The person must create a new password when they first sign in.",
+    temporaryPasswordHint:
+      "The person must create a new password when they first sign in.",
     cancel: "Cancel",
     adding: "Adding…",
   },
 } as const;
 
 export function useSettingsCopy() {
-  const language = useSyncExternalStore<AppLanguage>(subscribeToLanguage, languageSnapshot, () => "id");
+  const language = useSyncExternalStore<AppLanguage>(
+    subscribeToLanguage,
+    languageSnapshot,
+    () => "id",
+  );
   return { language, t: settingsCopy[language] };
 }

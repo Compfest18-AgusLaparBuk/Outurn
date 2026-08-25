@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import re
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -17,6 +18,8 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
+    delete,
     func,
     or_,
     select,
@@ -29,6 +32,7 @@ from app.core.errors import GateGuardError, NotFoundError
 from app.domain.jobs import ProcessingJobType
 from app.domain.models import ShipmentStatus, UserRole
 from app.repositories.reconciliations import (
+    AuditEventRow,
     Base,
     ReleaseDecisionRow,
     ReviewTaskRow,
@@ -36,8 +40,9 @@ from app.repositories.reconciliations import (
     TrustedShipmentReferenceRow,
     UserRow,
 )
-from app.services.assurance import calculate_risk
+from app.services.assurance import calculate_risk, policy_risk_config
 from app.services.release_integrity import build_release_snapshot, snapshot_hash
+from app.services.secret_store import decrypt_secret, encrypt_secret
 
 
 def now_utc() -> datetime:
@@ -92,6 +97,220 @@ def validate_webhook_endpoint(endpoint: str, *, production: bool) -> str:
             status_code=422,
         )
     return endpoint.strip()
+
+
+def validate_connection_base_url(endpoint: str, *, production: bool) -> str:
+    """Validate provider base URLs before a future adapter can make requests."""
+    parsed = urlparse(endpoint.strip())
+    if parsed.scheme not in {"https", "http"} or not parsed.hostname:
+        raise GateGuardError(
+            "Connection base URLs must use a valid HTTP(S) URL.",
+            code="INVALID_CONNECTION_URL",
+            status_code=422,
+        )
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise GateGuardError(
+            "Connection base URLs cannot contain credentials, query strings, or fragments.",
+            code="INVALID_CONNECTION_URL",
+            status_code=422,
+        )
+    host = parsed.hostname.casefold().rstrip(".")
+    if production and parsed.scheme != "https":
+        raise GateGuardError(
+            "Connection base URLs must use HTTPS in production.",
+            code="INVALID_CONNECTION_URL",
+            status_code=422,
+        )
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address and not address.is_global:
+        raise GateGuardError(
+            "Private or reserved connection addresses are not allowed.",
+            code="INVALID_CONNECTION_URL",
+            status_code=422,
+        )
+    return endpoint.strip().rstrip("/")
+
+
+_SAFE_CONNECTION_KEYS = frozenset(
+    {"base_url", "dataset", "region", "tenant", "environment", "timeout_seconds", "mode"}
+)
+_SECRET_KEY_MARKERS = frozenset(
+    {
+        "secret",
+        "token",
+        "password",
+        "passwd",
+        "api_key",
+        "apikey",
+        "private_key",
+        "credential",
+        "authorization",
+    }
+)
+_WEBHOOK_EVENT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$")
+_SERVICE_SCOPES = frozenset({"shipment.read", "shipment.write"})
+_DEFAULT_REVIEW_POLICY = {
+    "low_sla_hours": 24,
+    "medium_sla_hours": 8,
+    "high_sla_hours": 4,
+    "critical_sla_hours": 1,
+    "require_decision_reason": True,
+    "require_high_risk_approval": True,
+    "require_critical_exception_approval": True,
+}
+_DEFAULT_RETENTION_POLICY = {
+    "audit_days": 365,
+    "document_days": 365,
+    "job_days": 90,
+    "webhook_days": 90,
+}
+
+
+def normalize_webhook_events(value: object) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise GateGuardError(
+            "Webhook events must be a list.", code="VALIDATION_ERROR", status_code=422
+        )
+    events = list(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+    if len(events) > 20 or any(not _WEBHOOK_EVENT_PATTERN.fullmatch(item) for item in events):
+        raise GateGuardError(
+            "Webhook events must use short names such as shipment.updated.",
+            code="VALIDATION_ERROR",
+            status_code=422,
+        )
+    return events
+
+
+def normalize_service_scopes(value: object) -> list[str]:
+    if not isinstance(value, list):
+        raise GateGuardError(
+            "Service token scopes must be a list.", code="VALIDATION_ERROR", status_code=422
+        )
+    scopes = list(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+    if not scopes or any(scope not in _SERVICE_SCOPES for scope in scopes):
+        raise GateGuardError(
+            "The requested service token scope is not allowed.",
+            code="INVALID_SERVICE_SCOPE",
+            status_code=422,
+        )
+    return scopes
+
+
+def normalize_service_expiry(value: object, *, now: datetime | None = None) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        raise GateGuardError(
+            "Token expiry must be a timestamp.", code="VALIDATION_ERROR", status_code=422
+        )
+    current = now or now_utc()
+    expiry = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    if expiry <= current:
+        raise GateGuardError(
+            "Token expiry must be in the future.", code="VALIDATION_ERROR", status_code=422
+        )
+    return expiry
+
+
+def normalize_review_policy(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise GateGuardError(
+            "Review policy must be an object.", code="VALIDATION_ERROR", status_code=422
+        )
+    normalized = dict(_DEFAULT_REVIEW_POLICY)
+    for key in normalized:
+        if key not in value:
+            continue
+        current = value[key]
+        if key.endswith("_hours"):
+            try:
+                current = int(current)
+            except (TypeError, ValueError) as exc:
+                raise GateGuardError(
+                    "Review SLA values must be whole hours.",
+                    code="VALIDATION_ERROR",
+                    status_code=422,
+                ) from exc
+            if not 1 <= current <= 720:
+                raise GateGuardError(
+                    "Review SLA values must be between 1 and 720 hours.",
+                    code="VALIDATION_ERROR",
+                    status_code=422,
+                )
+        elif not isinstance(current, bool):
+            raise GateGuardError(
+                "Review policy switches must be boolean.",
+                code="VALIDATION_ERROR",
+                status_code=422,
+            )
+        normalized[key] = current
+    return normalized
+
+
+def normalize_retention_policy(value: object) -> dict[str, int]:
+    if not isinstance(value, dict):
+        raise GateGuardError(
+            "Retention policy must be an object.", code="VALIDATION_ERROR", status_code=422
+        )
+    normalized: dict[str, int] = {}
+    for key, minimum in (
+        ("audit_days", 30),
+        ("document_days", 30),
+        ("job_days", 7),
+        ("webhook_days", 7),
+    ):
+        raw = value.get(key, _DEFAULT_RETENTION_POLICY[key])
+        try:
+            days = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise GateGuardError(
+                "Retention windows must be whole days.", code="VALIDATION_ERROR", status_code=422
+            ) from exc
+        if not minimum <= days <= 3_650:
+            raise GateGuardError(
+                f"{key} must be between {minimum} and 3650 days.",
+                code="VALIDATION_ERROR",
+                status_code=422,
+            )
+        normalized[key] = days
+    return normalized
+
+
+def sanitize_connection_configuration(configuration: dict[str, Any]) -> dict[str, Any]:
+    """Keep only non-sensitive connection metadata; credentials use a reference."""
+    safe: dict[str, Any] = {}
+    for raw_key, value in configuration.items():
+        key = str(raw_key).strip().casefold()
+        if any(marker in key for marker in _SECRET_KEY_MARKERS):
+            raise GateGuardError(
+                "Credentials must be stored through a server-side credential reference.",
+                code="CREDENTIAL_VALUE_REJECTED",
+                status_code=422,
+            )
+        if key not in _SAFE_CONNECTION_KEYS:
+            raise GateGuardError(
+                "Unsupported connection metadata field.",
+                code="UNSUPPORTED_CONNECTION_FIELD",
+                status_code=422,
+            )
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            if key == "base_url" and value:
+                value = validate_connection_base_url(
+                    str(value), production=get_settings().app_env.casefold() == "production"
+                )
+            safe[key] = value
+        else:
+            raise GateGuardError(
+                "Connection metadata must be a scalar value.",
+                code="INVALID_CONNECTION_METADATA",
+                status_code=422,
+            )
+    return safe
 
 
 class OrganizationRow(Base):
@@ -554,6 +773,7 @@ class WebhookSubscriptionRow(Base):
     endpoint: Mapped[str] = mapped_column(String(500))
     events_json: Mapped[str] = mapped_column(Text, default="[]")
     secret_hash: Mapped[str] = mapped_column(String(64))
+    secret_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -561,6 +781,11 @@ class WebhookSubscriptionRow(Base):
 
 class WebhookDeliveryRow(Base):
     __tablename__ = "webhook_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "subscription_id", "event_id", name="uq_webhook_delivery_subscription_event"
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     organization_id: Mapped[str] = mapped_column(
@@ -570,10 +795,13 @@ class WebhookDeliveryRow(Base):
         String(36), ForeignKey("webhook_subscriptions.id", ondelete="CASCADE"), index=True
     )
     event_type: Mapped[str] = mapped_column(String(80), index=True)
+    event_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
     status: Mapped[str] = mapped_column(String(24), index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     response_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
@@ -647,6 +875,26 @@ class WorkspaceSettingRow(Base):
     value_json: Mapped[str] = mapped_column(Text)
     updated_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class LegalHoldRow(Base):
+    __tablename__ = "legal_holds"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "shipment_id", name="uq_legal_hold_shipment"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    shipment_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("shipment_cases.id", ondelete="CASCADE"), index=True
+    )
+    reason: Mapped[str] = mapped_column(String(500))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ReferenceDataRow(Base):
@@ -728,6 +976,14 @@ class WorkerHeartbeatRow(Base):
 
 class DomainEventRow(Base):
     __tablename__ = "domain_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "event_type",
+            "idempotency_key",
+            name="uq_domain_event_idempotency",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     organization_id: Mapped[str] = mapped_column(
@@ -736,7 +992,32 @@ class DomainEventRow(Base):
     event_type: Mapped[str] = mapped_column(String(80), index=True)
     entity_type: Mapped[str] = mapped_column(String(80), index=True)
     entity_id: Mapped[str] = mapped_column(String(36), index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
     payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ApiIdempotencyRow(Base):
+    __tablename__ = "api_idempotency_keys"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "service_account_id",
+            "idempotency_key",
+            name="uq_api_idempotency_scope",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    service_account_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("service_accounts.id", ondelete="CASCADE"), index=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(24), default="PROCESSING")
+    response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
@@ -762,6 +1043,8 @@ class OperationsRepository:
         if auto_create_schema:
             Base.metadata.create_all(self.engine)
         self.ensure_default_workspace()
+        if auto_create_schema:
+            self.ensure_core_policy()
 
     def ensure_default_workspace(self) -> str | None:
         """Provision the bootstrap workspace only when no organization exists.
@@ -798,6 +1081,107 @@ class OperationsRepository:
             )
             session.commit()
             return organization.id
+
+    def ensure_core_policy(self) -> None:
+        """Seed one explicit published policy for local/test databases."""
+        with self.session_factory() as session:
+            if session.scalar(
+                select(RulePackRow.id).where(RulePackRow.status == "PUBLISHED").limit(1)
+            ):
+                return
+            now = now_utc()
+            pack_id = str(uuid.uuid4())
+            pack = RulePackRow(
+                id=pack_id,
+                organization_id=None,
+                name="GateGuard Core Assurance Policy",
+                version="2026.08.1",
+                status="PUBLISHED",
+                scope="GLOBAL",
+                effective_from=now,
+                effective_to=None,
+                created_by="system",
+                published_by=None,
+                published_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(pack)
+            session.add_all(
+                RuleDefinitionRow(
+                    id=str(uuid.uuid4()),
+                    rule_pack_id=pack_id,
+                    rule_id=rule_id,
+                    name=name,
+                    description=description,
+                    condition_json=json.dumps(condition, sort_keys=True),
+                    active=True,
+                    created_at=now,
+                )
+                for rule_id, name, description, condition in (
+                    (
+                        "DOCS_REQUIRED",
+                        "Required shipment documents",
+                        "All active document requirements must have evidence.",
+                        {"check_type": "DOCUMENT_REQUIREMENTS"},
+                    ),
+                    (
+                        "DG_COMPLETE",
+                        "Dangerous goods completeness",
+                        "Dangerous goods declarations require complete identifiers.",
+                        {"check_type": "DANGEROUS_GOODS"},
+                    ),
+                    (
+                        "SCREENING_REVIEW",
+                        "Party screening disposition",
+                        "Missing or unresolved screening cannot authorize release.",
+                        {"check_type": "PARTY_SCREENING"},
+                    ),
+                    (
+                        "RISK_BLOCKING_ASSURANCE",
+                        "Risk weight: blocking assurance",
+                        "Scoring input for a persisted blocking assurance finding.",
+                        {"risk_factor": "BLOCKING_ASSURANCE", "weight": 40},
+                    ),
+                    (
+                        "RISK_MISSING_DOCUMENT",
+                        "Risk weight: missing document",
+                        "Scoring input for a missing required document.",
+                        {"risk_factor": "MISSING_REQUIRED_DOCUMENT", "weight": 25},
+                    ),
+                    (
+                        "RISK_HIGH_EXCEPTION",
+                        "Risk weight: high exception",
+                        "Scoring input for a high or critical exception.",
+                        {"risk_factor": "HIGH_CRITICAL_EXCEPTION", "weight": 30},
+                    ),
+                    (
+                        "RISK_DANGEROUS_GOODS",
+                        "Risk weight: dangerous goods",
+                        "Scoring input for incomplete dangerous goods evidence.",
+                        {"risk_factor": "DANGEROUS_GOODS_INCOMPLETE", "weight": 20},
+                    ),
+                    (
+                        "RISK_THRESHOLD_MEDIUM",
+                        "Risk threshold: medium",
+                        "Policy threshold.",
+                        {"risk_level": "MEDIUM", "threshold": 25},
+                    ),
+                    (
+                        "RISK_THRESHOLD_HIGH",
+                        "Risk threshold: high",
+                        "Policy threshold.",
+                        {"risk_level": "HIGH", "threshold": 50},
+                    ),
+                    (
+                        "RISK_THRESHOLD_CRITICAL",
+                        "Risk threshold: critical",
+                        "Policy threshold.",
+                        {"risk_level": "CRITICAL", "threshold": 75},
+                    ),
+                )
+            )
+            session.commit()
 
     def organization_for(self, user: UserRow, requested_id: str | None = None) -> OrganizationRow:
         with self.session_factory() as session:
@@ -914,12 +1298,14 @@ class OperationsRepository:
         *,
         organization_id: str,
         user: UserRow,
+        workspace_role: str | None = None,
         query: str,
         limit: int = 20,
         types: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         term = f"%{query.strip()}%"
         bounded = max(1, min(limit, 50))
+        effective_role = workspace_role or user.role
         result: list[dict[str, Any]] = []
         with self.session_factory() as session:
             shipments = list(
@@ -1060,7 +1446,7 @@ class OperationsRepository:
                 }
                 for release, shipment in releases
             )
-            if user.role in {UserRole.ADMIN.value, UserRole.SUPERVISOR.value}:
+            if effective_role in {UserRole.ADMIN.value, UserRole.SUPERVISOR.value}:
                 users = list(
                     session.scalars(
                         select(UserRow)
@@ -1082,7 +1468,7 @@ class OperationsRepository:
                     }
                     for item in users
                 )
-                if user.role == UserRole.ADMIN.value:
+                if effective_role == UserRole.ADMIN.value:
                     packs = list(
                         session.scalars(
                             select(RulePackRow)
@@ -1155,11 +1541,23 @@ class OperationsRepository:
                     )
                     or 0
                 )
+                latest_screening = session.scalar(
+                    select(ScreeningRunRow)
+                    .where(
+                        ScreeningRunRow.organization_id == organization_id,
+                        ScreeningRunRow.party_id == row.id,
+                    )
+                    .order_by(ScreeningRunRow.screened_at.desc())
+                )
                 output.append(
                     {
                         **row_dict(row),
                         "shipment_count": int(shipment_count),
-                        "screening": "Not configured",
+                        "screening": (
+                            latest_screening.result
+                            if latest_screening is not None
+                            else "NOT_RUN"
+                        ),
                     }
                 )
             return output
@@ -1481,15 +1879,22 @@ class OperationsRepository:
             }
 
     def release_gate(self, session: Session, shipment_id: str) -> list[dict[str, Any]]:
-        documents = (
-            session.scalar(
-                select(func.count(ShipmentDocumentRow.id)).where(
-                    ShipmentDocumentRow.shipment_id == shipment_id,
-                    ShipmentDocumentRow.status.in_(["READY", "NEEDS_REVIEW"]),
+        evaluations = list(
+            session.execute(
+                select(RequirementEvaluationRow, DocumentRequirementRow)
+                .join(
+                    DocumentRequirementRow,
+                    DocumentRequirementRow.id == RequirementEvaluationRow.requirement_id,
                 )
+                .where(RequirementEvaluationRow.shipment_id == shipment_id)
             )
-            or 0
         )
+        missing_requirements = [
+            requirement.name
+            for evaluation, requirement in evaluations
+            if requirement.status in {"REQUIRED", "ACTIVE"}
+            and evaluation.result not in {"PROVIDED", "CLEAR", "NOT_APPLICABLE"}
+        ]
         checks = list(
             session.scalars(
                 select(AssuranceCheckRow)
@@ -1513,8 +1918,27 @@ class OperationsRepository:
         def state(condition: bool, review: bool = False) -> str:
             return "CLEAR" if condition else "REVIEW" if review else "BLOCKED"
 
+        document_state = "BLOCKED" if missing_requirements else "CLEAR" if evaluations else "REVIEW"
+        latest_decision = session.scalar(
+            select(ReleaseDecisionRow)
+            .where(ReleaseDecisionRow.shipment_id == shipment_id)
+            .order_by(ReleaseDecisionRow.created_at.desc())
+        )
+        approval_state = "NOT_REQUESTED"
+        if latest_decision and latest_decision.invalidated_at is None:
+            approval_state = (
+                "AUTHORIZED"
+                if session.scalar(
+                    select(DecisionApprovalRow.id).where(
+                        DecisionApprovalRow.release_decision_id == latest_decision.id
+                    )
+                )
+                else "PENDING_SECOND_APPROVAL"
+                if latest_decision.decision == "AUTHORIZE"
+                else "HOLD"
+            )
         return [
-            {"key": "documents", "label": "Required documents", "state": state(documents > 0)},
+            {"key": "documents", "label": "Required documents", "state": document_state},
             {
                 "key": "reconciliation",
                 "label": "Document reconciliation",
@@ -1548,8 +1972,161 @@ class OperationsRepository:
                 "label": "Open exceptions",
                 "state": state(exceptions == 0, review=exceptions > 0),
             },
-            {"key": "approvals", "label": "Approvals", "state": "CLEAR"},
+            {"key": "approvals", "label": "Approvals", "state": approval_state},
         ]
+
+    def release_gate_snapshot(self, *, organization_id: str, shipment_id: str) -> dict[str, Any]:
+        """Return the canonical release decision snapshot used by UI and dispatch."""
+        with self.session_factory() as session:
+            shipment = session.scalar(
+                select(ShipmentCaseRow).where(
+                    ShipmentCaseRow.id == shipment_id,
+                    ShipmentCaseRow.organization_id == organization_id,
+                )
+            )
+            if shipment is None:
+                raise NotFoundError("Shipment was not found in this workspace.")
+            evaluations = list(
+                session.execute(
+                    select(RequirementEvaluationRow, DocumentRequirementRow)
+                    .join(
+                        DocumentRequirementRow,
+                        DocumentRequirementRow.id == RequirementEvaluationRow.requirement_id,
+                    )
+                    .where(
+                        RequirementEvaluationRow.organization_id == organization_id,
+                        RequirementEvaluationRow.shipment_id == shipment_id,
+                    )
+                )
+            )
+            requirements = [
+                {
+                    "id": requirement.id,
+                    "name": requirement.name,
+                    "result": evaluation.result,
+                    "status": requirement.status,
+                    "rule_pack_version": evaluation.rule_pack_version,
+                }
+                for evaluation, requirement in evaluations
+            ]
+            missing = [
+                item["name"]
+                for item in requirements
+                if item["status"] in {"REQUIRED", "ACTIVE"}
+                and item["result"] not in {"PROVIDED", "CLEAR", "NOT_APPLICABLE"}
+            ]
+            latest_checks: dict[str, AssuranceCheckRow] = {}
+            for check in session.scalars(
+                select(AssuranceCheckRow)
+                .where(
+                    AssuranceCheckRow.organization_id == organization_id,
+                    AssuranceCheckRow.shipment_id == shipment_id,
+                )
+                .order_by(AssuranceCheckRow.created_at.desc())
+            ):
+                latest_checks.setdefault(check.check_type, check)
+            blocking_checks = [
+                check.check_type
+                for check in latest_checks.values()
+                if check.status in {"HOLD", "REVIEW", "PENDING", "RUNNING", "FAILED"}
+            ]
+            blocking_exceptions = [
+                item.summary
+                for item in session.scalars(
+                    select(ShipmentExceptionRow).where(
+                        ShipmentExceptionRow.organization_id == organization_id,
+                        ShipmentExceptionRow.shipment_id == shipment_id,
+                        ShipmentExceptionRow.status.not_in(["RESOLVED", "CANCELLED"]),
+                    )
+                )
+                if item.severity in {"HIGH", "CRITICAL"}
+            ]
+            open_tasks = int(
+                session.scalar(
+                    select(func.count(ReviewTaskRow.id)).where(
+                        ReviewTaskRow.organization_id == organization_id,
+                        ReviewTaskRow.shipment_id == shipment_id,
+                        ReviewTaskRow.status != "RESOLVED",
+                    )
+                )
+                or 0
+            )
+            reference = session.scalar(
+                select(TrustedShipmentReferenceRow).where(
+                    TrustedShipmentReferenceRow.organization_id == organization_id,
+                    TrustedShipmentReferenceRow.shipment_id == shipment_id,
+                )
+            )
+            current = build_release_snapshot(
+                missing_requirements=missing,
+                blocking_checks=blocking_checks,
+                blocking_exceptions=blocking_exceptions,
+                open_tasks=open_tasks,
+                trusted_reference_version=reference.version if reference else None,
+                trusted_reference_hash=reference.content_hash if reference else None,
+                assurance_versions={
+                    check_type: (check.status, check.source_version)
+                    for check_type, check in latest_checks.items()
+                },
+            )
+            latest_decision = session.scalar(
+                select(ReleaseDecisionRow)
+                .where(
+                    ReleaseDecisionRow.organization_id == organization_id,
+                    ReleaseDecisionRow.shipment_id == shipment_id,
+                )
+                .order_by(ReleaseDecisionRow.created_at.desc())
+            )
+            approvals = []
+            if latest_decision:
+                approvals = [
+                    {
+                        "id": approval.id,
+                        "approver_user_id": approval.approver_user_id,
+                        "approval_type": approval.approval_type,
+                        "approved_at": approval.approved_at,
+                    }
+                    for approval in session.scalars(
+                        select(DecisionApprovalRow).where(
+                            DecisionApprovalRow.organization_id == organization_id,
+                            DecisionApprovalRow.release_decision_id == latest_decision.id,
+                        )
+                    )
+                ]
+            approval_state = "NOT_REQUESTED"
+            if latest_decision and latest_decision.invalidated_at is None:
+                approval_state = (
+                    "AUTHORIZED"
+                    if shipment.status == ShipmentStatus.RELEASE_AUTHORIZED.value
+                    else "PENDING_SECOND_APPROVAL"
+                    if latest_decision.decision == "AUTHORIZE"
+                    else "HOLD"
+                )
+            policy = self._published_policy(session, organization_id=organization_id, now=now_utc())
+            blockers = [
+                *({"code": "MISSING_REQUIREMENT", "detail": item} for item in missing),
+                *({"code": "BLOCKING_CHECK", "detail": item} for item in blocking_checks),
+                *({"code": "BLOCKING_EXCEPTION", "detail": item} for item in blocking_exceptions),
+            ]
+            if open_tasks:
+                blockers.append({"code": "OPEN_REVIEW_TASK", "detail": str(open_tasks)})
+            return {
+                "shipment_id": shipment_id,
+                "status": "BLOCKED" if blockers else "CLEAR",
+                "blockers": blockers,
+                "requirements": requirements,
+                "gate": self.release_gate(session, shipment_id),
+                "latest_checks": [
+                    row_dict(check) | {"details": json.loads(check.details_json or "{}")}
+                    for check in latest_checks.values()
+                ],
+                "approval_state": approval_state,
+                "approvals": approvals,
+                "evidence_hash": snapshot_hash(current),
+                "snapshot": current,
+                "policy": {"id": policy.id, "version": policy.version} if policy else None,
+                "latest_decision": row_dict(latest_decision) if latest_decision else None,
+            }
 
     def list_checks(
         self,
@@ -1652,10 +2229,44 @@ class OperationsRepository:
                 )
             ]
 
+    def retry_job(self, *, organization_id: str, job_id: str) -> dict[str, Any]:
+        """Requeue a failed job only after verifying its workspace boundary."""
+        now = now_utc()
+        with self.session_factory() as session:
+            job = session.scalar(
+                select(ProcessingJobRow).where(
+                    ProcessingJobRow.id == job_id,
+                    ProcessingJobRow.organization_id == organization_id,
+                )
+            )
+            if job is None:
+                raise NotFoundError("Processing job was not found in this workspace.")
+            if job.status not in {"FAILED", "DEAD_LETTER"}:
+                raise GateGuardError(
+                    "Only failed or dead-letter jobs can be retried manually.",
+                    code="JOB_NOT_RETRYABLE",
+                    status_code=409,
+                )
+            job.status = "QUEUED"
+            job.attempts = 0
+            job.started_at = None
+            job.completed_at = None
+            job.heartbeat_at = None
+            job.next_attempt_at = now
+            job.error_code = None
+            job.safe_error = None
+            session.commit()
+            session.refresh(job)
+            return row_dict(job)
+
     def list_connections(self, *, organization_id: str) -> list[dict[str, Any]]:
         with self.session_factory() as session:
             return [
-                {**row_dict(row), "configuration": json.loads(row.configuration_safe_json)}
+                {
+                    **row_dict(row, exclude={"configuration_safe_json", "credential_reference"}),
+                    "configuration": json.loads(row.configuration_safe_json or "{}"),
+                    "credential_configured": bool(row.credential_reference),
+                }
                 for row in session.scalars(
                     select(IntegrationConnectionRow)
                     .where(IntegrationConnectionRow.organization_id == organization_id)
@@ -1674,10 +2285,11 @@ class OperationsRepository:
             )
             return [
                 {
-                    **row_dict(row),
+                    **row_dict(row, exclude={"secret_hash", "secret_ciphertext"}),
                     "events": json.loads(row.events_json),
                     "secret_configured": bool(row.secret_hash),
-                    "delivery_capability": "NOT_IMPLEMENTED",
+                    "secret_reveal": "one_time_on_create",
+                    "delivery_capability": "QUEUED_DELIVERY",
                 }
                 for row in rows
             ]
@@ -1813,6 +2425,13 @@ class OperationsRepository:
             )
             if pack is None:
                 raise NotFoundError("Rule pack was not found in this workspace.")
+            if pack.organization_id is None:
+                raise GateGuardError(
+                    "Shared policy packs are platform-managed and cannot be published "
+                    "from a workspace.",
+                    code="SHARED_POLICY_IMMUTABLE",
+                    status_code=409,
+                )
             if pack.status == "PUBLISHED":
                 raise GateGuardError(
                     "Published rule packs are immutable.",
@@ -1931,6 +2550,10 @@ class OperationsRepository:
                     setattr(organization, field, str(value).strip())
                     organization.updated_at = now
                     continue
+                if key == "review_policy":
+                    value = normalize_review_policy(value)
+                if key == "retention":
+                    value = normalize_retention_policy(value)
                 setting = session.scalar(
                     select(WorkspaceSettingRow).where(
                         WorkspaceSettingRow.organization_id == organization_id,
@@ -1955,18 +2578,229 @@ class OperationsRepository:
             session.commit()
         return self.settings(organization_id=organization_id)
 
+    def retention_policy(self, *, organization_id: str) -> dict[str, int]:
+        values = self.settings(organization_id=organization_id).get("settings", {})
+        return normalize_retention_policy(values.get("retention", {}))
+
+    def retention_dry_run(self, *, organization_id: str) -> dict[str, Any]:
+        policy = self.retention_policy(organization_id=organization_id)
+        now = now_utc()
+        cutoffs = {key: now - timedelta(days=days) for key, days in policy.items()}
+        with self.session_factory() as session:
+            held_ids = set(
+                session.scalars(
+                    select(LegalHoldRow.shipment_id).where(
+                        LegalHoldRow.organization_id == organization_id,
+                        LegalHoldRow.active.is_(True),
+                    )
+                )
+            )
+            audit_query = select(AuditEventRow).where(
+                AuditEventRow.organization_id == organization_id,
+                AuditEventRow.created_at < cutoffs["audit_days"],
+            )
+            if held_ids:
+                audit_query = audit_query.where(~AuditEventRow.entity_id.in_(held_ids))
+            audit_count = int(len(list(session.scalars(audit_query))))
+            job_count = int(
+                session.scalar(
+                    select(func.count(ProcessingJobRow.id)).where(
+                        ProcessingJobRow.organization_id == organization_id,
+                        ProcessingJobRow.queued_at < cutoffs["job_days"],
+                        ProcessingJobRow.status.in_(["SUCCEEDED", "FAILED", "DEAD_LETTER"]),
+                    )
+                )
+                or 0
+            )
+            webhook_count = int(
+                session.scalar(
+                    select(func.count(WebhookDeliveryRow.id)).where(
+                        WebhookDeliveryRow.organization_id == organization_id,
+                        WebhookDeliveryRow.created_at < cutoffs["webhook_days"],
+                        WebhookDeliveryRow.status.in_(["DELIVERED", "FAILED"]),
+                    )
+                )
+                or 0
+            )
+            document_query = (
+                select(DocumentVersionRow)
+                .join(ShipmentDocumentRow, ShipmentDocumentRow.id == DocumentVersionRow.document_id)
+                .where(
+                    DocumentVersionRow.organization_id == organization_id,
+                    DocumentVersionRow.uploaded_at < cutoffs["document_days"],
+                    ShipmentDocumentRow.current_version_id != DocumentVersionRow.id,
+                )
+            )
+            if held_ids:
+                document_query = document_query.where(
+                    ~ShipmentDocumentRow.shipment_id.in_(held_ids)
+                )
+            document_count = int(len(list(session.scalars(document_query))))
+            holds = int(
+                session.scalar(
+                    select(func.count(LegalHoldRow.id)).where(
+                        LegalHoldRow.organization_id == organization_id,
+                        LegalHoldRow.active.is_(True),
+                    )
+                )
+                or 0
+            )
+        return {
+            "policy": policy,
+            "cutoffs": cutoffs,
+            "legal_holds": holds,
+            "candidates": {
+                "audit_events": audit_count,
+                "processing_jobs": job_count,
+                "webhook_deliveries": webhook_count,
+                "document_bytes": document_count,
+            },
+            "mutated": False,
+        }
+
+    def cleanup_retention(self, *, organization_id: str) -> dict[str, Any]:
+        preview = self.retention_dry_run(organization_id=organization_id)
+        policy = preview["policy"]
+        cutoffs = preview["cutoffs"]
+        with self.session_factory() as session:
+            held_ids = set(
+                session.scalars(
+                    select(LegalHoldRow.shipment_id).where(
+                        LegalHoldRow.organization_id == organization_id,
+                        LegalHoldRow.active.is_(True),
+                    )
+                )
+            )
+            audit_query = delete(AuditEventRow).where(
+                AuditEventRow.organization_id == organization_id,
+                AuditEventRow.created_at < cutoffs["audit_days"],
+            )
+            if held_ids:
+                audit_query = audit_query.where(~AuditEventRow.entity_id.in_(held_ids))
+            audit_deleted = int(session.execute(audit_query).rowcount or 0)
+            jobs_deleted = int(
+                session.execute(
+                    delete(ProcessingJobRow).where(
+                        ProcessingJobRow.organization_id == organization_id,
+                        ProcessingJobRow.queued_at < cutoffs["job_days"],
+                        ProcessingJobRow.status.in_(["SUCCEEDED", "FAILED", "DEAD_LETTER"]),
+                    )
+                ).rowcount
+                or 0
+            )
+            webhook_deleted = int(
+                session.execute(
+                    delete(WebhookDeliveryRow).where(
+                        WebhookDeliveryRow.organization_id == organization_id,
+                        WebhookDeliveryRow.created_at < cutoffs["webhook_days"],
+                        WebhookDeliveryRow.status.in_(["DELIVERED", "FAILED"]),
+                    )
+                ).rowcount
+                or 0
+            )
+            document_query = (
+                select(DocumentVersionRow)
+                .join(ShipmentDocumentRow, ShipmentDocumentRow.id == DocumentVersionRow.document_id)
+                .where(
+                    DocumentVersionRow.organization_id == organization_id,
+                    DocumentVersionRow.uploaded_at < cutoffs["document_days"],
+                    ShipmentDocumentRow.current_version_id != DocumentVersionRow.id,
+                )
+            )
+            if held_ids:
+                document_query = document_query.where(
+                    ~ShipmentDocumentRow.shipment_id.in_(held_ids)
+                )
+            old_versions = list(session.scalars(document_query))
+            from app.services.document_storage import DocumentStorage
+
+            storage = DocumentStorage(get_settings().document_storage_root)
+            for version in old_versions:
+                storage.path_for(version.storage_key).unlink(missing_ok=True)
+                session.delete(version)
+            session.commit()
+        return {
+            "policy": policy,
+            "deleted": {
+                "audit_events": audit_deleted,
+                "processing_jobs": jobs_deleted,
+                "webhook_deliveries": webhook_deleted,
+                "document_bytes": len(old_versions),
+            },
+            "mutated": True,
+        }
+
+    def set_legal_hold(
+        self,
+        *,
+        organization_id: str,
+        shipment_id: str,
+        user: UserRow,
+        active: bool,
+        reason: str,
+    ) -> dict[str, Any]:
+        now = now_utc()
+        reason = " ".join(reason.split())
+        if active and len(reason) < 3:
+            raise GateGuardError(
+                "A legal hold requires a reason.", code="VALIDATION_ERROR", status_code=422
+            )
+        with self.session_factory() as session:
+            shipment = session.scalar(
+                select(ShipmentCaseRow).where(
+                    ShipmentCaseRow.id == shipment_id,
+                    ShipmentCaseRow.organization_id == organization_id,
+                )
+            )
+            if shipment is None:
+                raise NotFoundError("Shipment was not found in this workspace.")
+            hold = session.scalar(
+                select(LegalHoldRow).where(
+                    LegalHoldRow.organization_id == organization_id,
+                    LegalHoldRow.shipment_id == shipment_id,
+                )
+            )
+            if hold is None:
+                hold = LegalHoldRow(
+                    id=str(uuid.uuid4()),
+                    organization_id=organization_id,
+                    shipment_id=shipment_id,
+                    reason=reason,
+                    active=active,
+                    created_by=user.id,
+                    created_at=now,
+                    released_at=None if active else now,
+                )
+                session.add(hold)
+            else:
+                hold.reason = reason or hold.reason
+                hold.active = active
+                hold.released_at = None if active else now
+            session.commit()
+            return row_dict(hold)
+
     def create_connection(
         self, *, organization_id: str, user: UserRow, payload: dict[str, Any]
     ) -> dict[str, Any]:
         now = now_utc()
+        credential_reference = str(payload.get("credential_reference") or "").strip() or None
+        if credential_reference and (
+            len(credential_reference) > 160 or any(char.isspace() for char in credential_reference)
+        ):
+            raise GateGuardError(
+                "Credential reference must be a short server-side identifier.",
+                code="INVALID_CREDENTIAL_REFERENCE",
+                status_code=422,
+            )
+        safe_configuration = sanitize_connection_configuration(payload.get("configuration", {}))
         row = IntegrationConnectionRow(
             id=str(uuid.uuid4()),
             organization_id=organization_id,
             name=str(payload["name"]).strip(),
             type=str(payload["type"]),
             status="DISABLED",
-            configuration_safe_json=json.dumps(payload.get("configuration", {})),
-            credential_reference=None,
+            configuration_safe_json=json.dumps(safe_configuration, sort_keys=True),
+            credential_reference=credential_reference,
             created_at=now,
             updated_at=now,
         )
@@ -1974,11 +2808,115 @@ class OperationsRepository:
             session.add(row)
             session.commit()
             session.refresh(row)
-            return row_dict(row) | {"configuration": json.loads(row.configuration_safe_json)}
+            return row_dict(row, exclude={"configuration_safe_json", "credential_reference"}) | {
+                "configuration": safe_configuration,
+                "credential_configured": bool(credential_reference),
+            }
+
+    def connection_action(
+        self,
+        *,
+        organization_id: str,
+        connection_id: str,
+        action: str,
+        credential_reference: str | None = None,
+    ) -> dict[str, Any]:
+        """Run an explicit connection lifecycle action without claiming provider coverage."""
+        now = now_utc()
+        with self.session_factory() as session:
+            row = session.scalar(
+                select(IntegrationConnectionRow).where(
+                    IntegrationConnectionRow.id == connection_id,
+                    IntegrationConnectionRow.organization_id == organization_id,
+                )
+            )
+            if row is None:
+                raise NotFoundError("Connection was not found in this workspace.")
+            configuration = json.loads(row.configuration_safe_json or "{}")
+            if action == "VALIDATE":
+                base_url = configuration.get("base_url")
+                valid_url = True
+                if base_url:
+                    try:
+                        validate_connection_base_url(
+                            str(base_url),
+                            production=get_settings().app_env.casefold() == "production",
+                        )
+                    except GateGuardError:
+                        valid_url = False
+                return {
+                    "id": row.id,
+                    "status": row.status,
+                    "provider_capability": "NOT_CONFIGURED",
+                    "checks": {
+                        "metadata": "PASS" if valid_url else "FAIL",
+                        "credential_reference": "PASS" if row.credential_reference else "MISSING",
+                        "provider_adapter": "NOT_CONFIGURED",
+                    },
+                    "ready_to_enable": False,
+                }
+            if action == "TEST":
+                row.last_error_at = now
+                row.updated_at = now
+                session.commit()
+                return {
+                    "id": row.id,
+                    "status": row.status,
+                    "provider_status": "NOT_CONFIGURED",
+                    "message": (
+                        "No provider adapter is configured; the connection remains disabled."
+                    ),
+                    "last_success_at": row.last_success_at,
+                    "last_error_at": row.last_error_at,
+                }
+            if action == "ENABLE":
+                if not row.credential_reference:
+                    raise GateGuardError(
+                        "A server-side credential reference is required before enabling "
+                        "a connection.",
+                        code="CREDENTIAL_REFERENCE_REQUIRED",
+                        status_code=409,
+                    )
+                raise GateGuardError(
+                    "The provider adapter is not configured; the connection cannot be enabled.",
+                    code="PROVIDER_NOT_CONFIGURED",
+                    status_code=409,
+                )
+            if action == "DISABLE":
+                row.status = "DISABLED"
+            elif action == "ROTATE":
+                reference = str(credential_reference or "").strip()
+                if (
+                    not reference
+                    or len(reference) > 160
+                    or any(char.isspace() for char in reference)
+                ):
+                    raise GateGuardError(
+                        "Credential rotation requires a server-side reference.",
+                        code="INVALID_CREDENTIAL_REFERENCE",
+                        status_code=422,
+                    )
+                row.credential_reference = reference
+                row.status = "DISABLED"
+                row.last_success_at = None
+                row.last_error_at = None
+            elif action == "DELETE":
+                row.status = "DELETED"
+            else:
+                raise GateGuardError(
+                    "Unsupported connection action.", code="VALIDATION_ERROR", status_code=422
+                )
+            row.updated_at = now
+            session.commit()
+            return row_dict(row, exclude={"configuration_safe_json", "credential_reference"}) | {
+                "configuration": configuration,
+                "credential_configured": bool(row.credential_reference),
+            }
 
     def create_webhook(self, *, organization_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         secret = secrets.token_urlsafe(32)
         now = now_utc()
+        events = normalize_webhook_events(payload.get("events", []))
         endpoint = validate_webhook_endpoint(
             str(payload["endpoint"]), production=get_settings().app_env.casefold() == "production"
         )
@@ -1987,8 +2925,9 @@ class OperationsRepository:
             organization_id=organization_id,
             name=str(payload["name"]).strip(),
             endpoint=endpoint,
-            events_json=json.dumps(payload.get("events", [])),
+            events_json=json.dumps(events),
             secret_hash=hashlib.sha256(secret.encode()).hexdigest(),
+            secret_ciphertext=encrypt_secret(secret, get_settings()),
             enabled=True,
             created_at=now,
             updated_at=now,
@@ -1997,20 +2936,384 @@ class OperationsRepository:
             session.add(row)
             session.commit()
         return {
-            "subscription": row_dict(row)
+            "subscription": row_dict(row, exclude={"secret_ciphertext", "secret_hash"})
             | {
-                "events": payload.get("events", []),
+                "events": events,
                 "secret_configured": True,
-                "delivery_capability": "NOT_IMPLEMENTED",
+                "secret_reveal": "one_time_on_create",
+                "delivery_capability": "QUEUED_DELIVERY",
             },
             "secret": secret,
         }
+
+    def queue_webhook_delivery(
+        self,
+        *,
+        organization_id: str,
+        subscription_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        event_id: str | None = None,
+        allow_unlisted_test: bool = False,
+    ) -> dict[str, Any]:
+        now = now_utc()
+        event_names = normalize_webhook_events([event_type])
+        if not event_names:
+            raise GateGuardError(
+                "Event type is required.", code="VALIDATION_ERROR", status_code=422
+            )
+        event_name = event_names[0]
+        with self.session_factory() as session:
+            subscription = session.scalar(
+                select(WebhookSubscriptionRow).where(
+                    WebhookSubscriptionRow.id == subscription_id,
+                    WebhookSubscriptionRow.organization_id == organization_id,
+                )
+            )
+            if subscription is None:
+                raise NotFoundError("Webhook subscription was not found in this workspace.")
+            if not subscription.enabled:
+                raise GateGuardError(
+                    "Webhook subscription is disabled.", code="WEBHOOK_DISABLED", status_code=409
+                )
+            events = json.loads(subscription.events_json or "[]")
+            if events and event_name not in events and not allow_unlisted_test:
+                raise GateGuardError(
+                    "This event is not enabled for the webhook.",
+                    code="WEBHOOK_EVENT_DISABLED",
+                    status_code=422,
+                )
+            delivery = WebhookDeliveryRow(
+                id=str(uuid.uuid4()),
+                organization_id=organization_id,
+                subscription_id=subscription_id,
+                event_type=event_name,
+                event_id=event_id,
+                payload_json=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                status="QUEUED",
+                attempts=0,
+                last_error=None,
+                next_attempt_at=None,
+                created_at=now,
+            )
+            job = ProcessingJobRow(
+                id=str(uuid.uuid4()),
+                organization_id=organization_id,
+                shipment_id=None,
+                job_type=ProcessingJobType.SEND_WEBHOOK.value,
+                status="QUEUED",
+                attempts=0,
+                max_attempts=4,
+                priority=40,
+                payload_json=json.dumps({"delivery_id": delivery.id}),
+                queued_at=now,
+            )
+            session.add_all([delivery, job])
+            session.commit()
+            return {"delivery": row_dict(delivery, exclude={"payload_json"}), "job_id": job.id}
+
+    def enqueue_domain_event_deliveries(self, *, limit: int = 200) -> int:
+        """Project committed domain events into the webhook outbox idempotently."""
+        now = now_utc()
+        created = 0
+        with self.session_factory() as session:
+            subscriptions = list(
+                session.scalars(
+                    select(WebhookSubscriptionRow).where(WebhookSubscriptionRow.enabled.is_(True))
+                )
+            )
+            if not subscriptions:
+                return 0
+            events = list(
+                session.scalars(
+                    select(DomainEventRow)
+                    .order_by(DomainEventRow.created_at.desc())
+                    .limit(max(1, min(limit, 500)))
+                )
+            )
+            for event in events:
+                for subscription in subscriptions:
+                    if subscription.organization_id != event.organization_id:
+                        continue
+                    allowed = json.loads(subscription.events_json or "[]")
+                    if allowed and event.event_type not in allowed:
+                        continue
+                    duplicate = session.scalar(
+                        select(WebhookDeliveryRow.id).where(
+                            WebhookDeliveryRow.subscription_id == subscription.id,
+                            WebhookDeliveryRow.event_id == event.id,
+                        )
+                    )
+                    if duplicate:
+                        continue
+                    delivery = WebhookDeliveryRow(
+                        id=str(uuid.uuid4()),
+                        organization_id=event.organization_id,
+                        subscription_id=subscription.id,
+                        event_type=event.event_type,
+                        event_id=event.id,
+                        payload_json=json.dumps(
+                            {
+                                "event_id": event.id,
+                                "event_type": event.event_type,
+                                "entity_type": event.entity_type,
+                                "entity_id": event.entity_id,
+                                "data": json.loads(event.payload_json or "{}"),
+                            },
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        status="QUEUED",
+                        attempts=0,
+                        created_at=now,
+                    )
+                    job = ProcessingJobRow(
+                        id=str(uuid.uuid4()),
+                        organization_id=event.organization_id,
+                        shipment_id=event.entity_id if event.entity_type == "shipment" else None,
+                        job_type=ProcessingJobType.SEND_WEBHOOK.value,
+                        status="QUEUED",
+                        attempts=0,
+                        max_attempts=4,
+                        priority=40,
+                        payload_json=json.dumps({"delivery_id": delivery.id}),
+                        queued_at=now,
+                    )
+                    session.add_all([delivery, job])
+                    created += 1
+            session.commit()
+        return created
+
+    def list_webhook_deliveries(
+        self, *, organization_id: str, subscription_id: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        with self.session_factory() as session:
+            rows = session.scalars(
+                select(WebhookDeliveryRow)
+                .where(
+                    WebhookDeliveryRow.organization_id == organization_id,
+                    WebhookDeliveryRow.subscription_id == subscription_id,
+                )
+                .order_by(WebhookDeliveryRow.created_at.desc())
+                .limit(max(1, min(limit, 200)))
+            )
+            return [row_dict(row, exclude={"payload_json"}) for row in rows]
+
+    def webhook_delivery_context(self, *, organization_id: str, delivery_id: str) -> dict[str, Any]:
+        with self.session_factory() as session:
+            row = session.scalar(
+                select(WebhookDeliveryRow).where(
+                    WebhookDeliveryRow.id == delivery_id,
+                    WebhookDeliveryRow.organization_id == organization_id,
+                )
+            )
+            if row is None:
+                raise NotFoundError("Webhook delivery was not found in this workspace.")
+            subscription = session.scalar(
+                select(WebhookSubscriptionRow).where(
+                    WebhookSubscriptionRow.id == row.subscription_id,
+                    WebhookSubscriptionRow.organization_id == organization_id,
+                )
+            )
+            if subscription is None:
+                raise NotFoundError("Webhook delivery was not found in this workspace.")
+            if not subscription.enabled:
+                raise GateGuardError(
+                    "Webhook subscription is disabled.", code="WEBHOOK_DISABLED", status_code=409
+                )
+            if not subscription.secret_ciphertext:
+                raise GateGuardError(
+                    "Webhook signing secret is unavailable.",
+                    code="WEBHOOK_SECRET_UNAVAILABLE",
+                    status_code=503,
+                )
+            return {
+                "delivery": row_dict(row),
+                "subscription": row_dict(
+                    subscription, exclude={"secret_hash", "secret_ciphertext"}
+                ),
+                "secret": decrypt_secret(subscription.secret_ciphertext, get_settings()),
+            }
+
+    def finish_webhook_delivery(
+        self,
+        *,
+        delivery_id: str,
+        success: bool,
+        response_code: int | None = None,
+        safe_error: str | None = None,
+    ) -> None:
+        now = now_utc()
+        with self.session_factory() as session:
+            row = session.get(WebhookDeliveryRow, delivery_id)
+            if row is None:
+                return
+            row.response_code = response_code
+            row.last_error = safe_error
+            row.delivered_at = now if success else None
+            row.status = "DELIVERED" if success else "FAILED"
+            row.next_attempt_at = None
+            session.commit()
+
+    def mark_webhook_delivery_retry(self, *, delivery_id: str, safe_error: str) -> None:
+        now = now_utc()
+        with self.session_factory() as session:
+            row = session.get(WebhookDeliveryRow, delivery_id)
+            if row is None:
+                return
+            row.attempts += 1
+            row.status = "RETRYING"
+            row.last_error = safe_error[:240]
+            row.next_attempt_at = now + timedelta(seconds=min(300, 2 ** max(row.attempts, 1) * 5))
+            session.commit()
+
+    def retry_webhook_delivery(self, *, organization_id: str, delivery_id: str) -> dict[str, Any]:
+        now = now_utc()
+        with self.session_factory() as session:
+            delivery = session.scalar(
+                select(WebhookDeliveryRow).where(
+                    WebhookDeliveryRow.id == delivery_id,
+                    WebhookDeliveryRow.organization_id == organization_id,
+                )
+            )
+            if delivery is None:
+                raise NotFoundError("Webhook delivery was not found in this workspace.")
+            subscription = session.scalar(
+                select(WebhookSubscriptionRow).where(
+                    WebhookSubscriptionRow.id == delivery.subscription_id,
+                    WebhookSubscriptionRow.organization_id == organization_id,
+                )
+            )
+            if subscription is None or not subscription.enabled:
+                raise GateGuardError(
+                    "Webhook subscription is disabled.", code="WEBHOOK_DISABLED", status_code=409
+                )
+            delivery.status = "QUEUED"
+            delivery.next_attempt_at = None
+            delivery.last_error = None
+            job = ProcessingJobRow(
+                id=str(uuid.uuid4()),
+                organization_id=organization_id,
+                shipment_id=None,
+                job_type=ProcessingJobType.SEND_WEBHOOK.value,
+                status="QUEUED",
+                attempts=0,
+                max_attempts=4,
+                priority=40,
+                payload_json=json.dumps({"delivery_id": delivery.id, "manual_retry": True}),
+                queued_at=now,
+            )
+            session.add(job)
+            session.commit()
+            return {"delivery": row_dict(delivery, exclude={"payload_json"}), "job_id": job.id}
+
+    def webhook_action(
+        self,
+        *,
+        organization_id: str,
+        subscription_id: str,
+        action: str,
+    ) -> dict[str, Any]:
+        now = now_utc()
+        with self.session_factory() as session:
+            subscription = session.scalar(
+                select(WebhookSubscriptionRow).where(
+                    WebhookSubscriptionRow.id == subscription_id,
+                    WebhookSubscriptionRow.organization_id == organization_id,
+                )
+            )
+            if subscription is None:
+                raise NotFoundError("Webhook subscription was not found in this workspace.")
+            secret: str | None = None
+            if action == "ROTATE":
+                secret = secrets.token_urlsafe(32)
+                subscription.secret_hash = hashlib.sha256(secret.encode()).hexdigest()
+                subscription.secret_ciphertext = encrypt_secret(secret, get_settings())
+            elif action == "ENABLE":
+                subscription.enabled = True
+            elif action == "DISABLE" or action == "DELETE":
+                subscription.enabled = False
+            else:
+                raise GateGuardError(
+                    "Unsupported webhook action.", code="VALIDATION_ERROR", status_code=422
+                )
+            subscription.updated_at = now
+            session.commit()
+            result = {
+                **row_dict(subscription, exclude={"secret_hash", "secret_ciphertext"}),
+                "events": json.loads(subscription.events_json or "[]"),
+                "secret_configured": bool(subscription.secret_hash),
+            }
+            if secret:
+                result["secret"] = secret
+            return result
+
+    def escalate_overdue_tasks(self, *, organization_id: str) -> int:
+        """Create idempotent supervisor notifications for overdue review tasks."""
+        now = now_utc()
+        created = 0
+        with self.session_factory() as session:
+            overdue = list(
+                session.scalars(
+                    select(ReviewTaskRow)
+                    .where(
+                        ReviewTaskRow.organization_id == organization_id,
+                        ReviewTaskRow.status.not_in(["RESOLVED", "CANCELLED"]),
+                        ReviewTaskRow.due_at.is_not(None),
+                        ReviewTaskRow.due_at < now,
+                    )
+                    .limit(200)
+                )
+            )
+            recipients = list(
+                session.scalars(
+                    select(UserRow)
+                    .join(WorkspaceMembershipRow, WorkspaceMembershipRow.user_id == UserRow.id)
+                    .where(
+                        WorkspaceMembershipRow.organization_id == organization_id,
+                        WorkspaceMembershipRow.active.is_(True),
+                        UserRow.active.is_(True),
+                        UserRow.role.in_(["supervisor", "admin"]),
+                    )
+                )
+            )
+            for task in overdue:
+                for recipient in recipients:
+                    exists = session.scalar(
+                        select(NotificationRow.id).where(
+                            NotificationRow.organization_id == organization_id,
+                            NotificationRow.user_id == recipient.id,
+                            NotificationRow.event_type == "review_task.overdue",
+                            NotificationRow.href == f"/work-queue?task={task.id}",
+                            NotificationRow.created_at >= now - timedelta(hours=24),
+                        )
+                    )
+                    if exists:
+                        continue
+                    session.add(
+                        NotificationRow(
+                            id=str(uuid.uuid4()),
+                            organization_id=organization_id,
+                            user_id=recipient.id,
+                            event_type="review_task.overdue",
+                            title="Overdue review task",
+                            body="A shipment review task is past its due time.",
+                            href=f"/work-queue?task={task.id}",
+                            read_at=None,
+                            created_at=now,
+                        )
+                    )
+                    created += 1
+            session.commit()
+        return created
 
     def create_service_token(
         self, *, organization_id: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
         raw = f"gg_{secrets.token_urlsafe(32)}"
         now = now_utc()
+        scopes = normalize_service_scopes(payload.get("scopes", ["shipment.read"]))
+        expires_at = normalize_service_expiry(payload.get("expires_at"), now=now)
         with self.session_factory() as session:
             account = ServiceAccountRow(
                 id=str(uuid.uuid4()),
@@ -2026,8 +3329,8 @@ class OperationsRepository:
                 service_account_id=account.id,
                 token_hash=hashlib.sha256(raw.encode()).hexdigest(),
                 prefix=raw[:10],
-                scopes=json.dumps(payload.get("scopes", ["shipment.read"])),
-                expires_at=None,
+                scopes=json.dumps(scopes),
+                expires_at=expires_at,
                 revoked_at=None,
                 last_used_at=None,
                 created_at=now,
@@ -2038,6 +3341,118 @@ class OperationsRepository:
                 "service_account": row_dict(account),
                 "token": raw,
                 "token_prefix": token.prefix,
+                "expires_at": token.expires_at,
+                "scopes": scopes,
+            }
+
+    def list_service_accounts(self, *, organization_id: str) -> list[dict[str, Any]]:
+        with self.session_factory() as session:
+            accounts = list(
+                session.scalars(
+                    select(ServiceAccountRow)
+                    .where(ServiceAccountRow.organization_id == organization_id)
+                    .order_by(ServiceAccountRow.created_at.desc())
+                )
+            )
+            output: list[dict[str, Any]] = []
+            for account in accounts:
+                tokens = list(
+                    session.scalars(
+                        select(ApiTokenRow)
+                        .where(ApiTokenRow.service_account_id == account.id)
+                        .order_by(ApiTokenRow.created_at.desc())
+                    )
+                )
+                output.append(
+                    {
+                        **row_dict(account),
+                        "tokens": [
+                            {
+                                "id": token.id,
+                                "prefix": token.prefix,
+                                "scopes": json.loads(token.scopes or "[]"),
+                                "expires_at": token.expires_at,
+                                "revoked_at": token.revoked_at,
+                                "last_used_at": token.last_used_at,
+                                "created_at": token.created_at,
+                            }
+                            for token in tokens
+                        ],
+                    }
+                )
+            return output
+
+    def revoke_service_account(
+        self, *, organization_id: str, service_account_id: str
+    ) -> dict[str, Any]:
+        now = now_utc()
+        with self.session_factory() as session:
+            account = session.scalar(
+                select(ServiceAccountRow).where(
+                    ServiceAccountRow.id == service_account_id,
+                    ServiceAccountRow.organization_id == organization_id,
+                )
+            )
+            if account is None:
+                raise NotFoundError("Service account was not found in this workspace.")
+            account.active = False
+            for token in session.scalars(
+                select(ApiTokenRow).where(ApiTokenRow.service_account_id == account.id)
+            ):
+                token.revoked_at = token.revoked_at or now
+            session.commit()
+            return row_dict(account)
+
+    def rotate_service_token(
+        self, *, organization_id: str, service_account_id: str, expires_at: datetime | None = None
+    ) -> dict[str, Any]:
+        now = now_utc()
+        expires_at = normalize_service_expiry(expires_at, now=now)
+        raw = f"gg_{secrets.token_urlsafe(32)}"
+        with self.session_factory() as session:
+            account = session.scalar(
+                select(ServiceAccountRow).where(
+                    ServiceAccountRow.id == service_account_id,
+                    ServiceAccountRow.organization_id == organization_id,
+                    ServiceAccountRow.active.is_(True),
+                )
+            )
+            if account is None:
+                raise NotFoundError("Active service account was not found in this workspace.")
+            previous = list(
+                session.scalars(
+                    select(ApiTokenRow).where(
+                        ApiTokenRow.service_account_id == account.id,
+                        ApiTokenRow.revoked_at.is_(None),
+                    )
+                )
+            )
+            scopes = (
+                normalize_service_scopes(json.loads(previous[0].scopes or "[]"))
+                if previous
+                else ["shipment.read"]
+            )
+            for token in previous:
+                token.revoked_at = now
+            token = ApiTokenRow(
+                id=str(uuid.uuid4()),
+                service_account_id=account.id,
+                token_hash=hashlib.sha256(raw.encode()).hexdigest(),
+                prefix=raw[:10],
+                scopes=json.dumps(scopes),
+                expires_at=expires_at,
+                revoked_at=None,
+                last_used_at=None,
+                created_at=now,
+            )
+            session.add(token)
+            session.commit()
+            return {
+                "service_account": row_dict(account),
+                "token": raw,
+                "token_prefix": token.prefix,
+                "expires_at": token.expires_at,
+                "scopes": scopes,
             }
 
     def service_token_context(self, raw_token: str) -> ServicePrincipal:
@@ -2163,7 +3578,20 @@ class OperationsRepository:
             if status:
                 row.status = status
             if assigned_to is not None:
-                assignee = session.get(UserRow, assigned_to) if assigned_to else None
+                assignee = (
+                    session.scalar(
+                        select(UserRow)
+                        .join(WorkspaceMembershipRow, WorkspaceMembershipRow.user_id == UserRow.id)
+                        .where(
+                            UserRow.id == assigned_to,
+                            UserRow.active.is_(True),
+                            WorkspaceMembershipRow.organization_id == organization_id,
+                            WorkspaceMembershipRow.active.is_(True),
+                        )
+                    )
+                    if assigned_to
+                    else None
+                )
                 if assigned_to and assignee is None:
                     raise NotFoundError("Assigned person was not found.")
                 row.assigned_to = assigned_to or None
@@ -2564,6 +3992,7 @@ class OperationsRepository:
             )
             if shipment is None:
                 raise NotFoundError("Shipment was not found in this workspace.")
+            policy = self._published_policy(session, organization_id=organization_id, now=now)
             from app.repositories.reconciliations import (
                 TrustedReferenceItemRow,
                 TrustedShipmentReferenceRow,
@@ -2640,7 +4069,7 @@ class OperationsRepository:
                 details_json=json.dumps(comparison),
                 source="MANUAL_AUTHORITATIVE_ENTRY",
                 source_version=str(reference.version),
-                rule_pack_version="baseline-1",
+                rule_pack_version=policy.version if policy else None,
                 started_at=now,
                 completed_at=now,
                 created_at=now,
@@ -2746,6 +4175,22 @@ class OperationsRepository:
             )
             if shipment is None:
                 raise NotFoundError("Shipment was not found in this workspace.")
+            existing = session.scalar(
+                select(ProcessingJobRow)
+                .where(
+                    ProcessingJobRow.organization_id == organization_id,
+                    ProcessingJobRow.shipment_id == shipment_id,
+                    ProcessingJobRow.job_type == ProcessingJobType.ASSESS_SHIPMENT.value,
+                    ProcessingJobRow.status.in_(["QUEUED", "RUNNING"]),
+                )
+                .order_by(ProcessingJobRow.queued_at.desc())
+            )
+            if existing is not None:
+                return {
+                    "job_id": existing.id,
+                    "shipment_id": shipment_id,
+                    "status": existing.status,
+                }
             shipment.assessment_started_at = now
             shipment.status = ShipmentStatus.ASSESSING.value
             shipment.updated_at = now
@@ -2788,6 +4233,60 @@ class OperationsRepository:
             )
             if shipment is None:
                 raise NotFoundError("Shipment was not found in this workspace.")
+            policy = self._published_policy(session, organization_id=organization_id, now=now)
+            if policy is None:
+                session.add(
+                    AssuranceCheckRow(
+                        id=str(uuid.uuid4()),
+                        organization_id=organization_id,
+                        shipment_id=shipment_id,
+                        check_type="POLICY_CONFIGURATION",
+                        status="REVIEW",
+                        severity="HIGH",
+                        summary="No published assurance policy is available for this workspace.",
+                        details_json=json.dumps({"release_blocking": True}),
+                        source="POLICY_CONFIGURATION",
+                        source_version="UNAVAILABLE",
+                        rule_pack_version=None,
+                        started_at=now,
+                        completed_at=now,
+                        created_at=now,
+                    )
+                )
+                shipment.status = ShipmentStatus.REVIEW_REQUIRED.value
+                shipment.last_assessed_at = now
+                shipment.updated_at = now
+                session.add(
+                    DomainEventRow(
+                        id=str(uuid.uuid4()),
+                        organization_id=organization_id,
+                        event_type="assessment.blocked_policy_missing",
+                        entity_type="shipment",
+                        entity_id=shipment_id,
+                        payload_json=json.dumps({"reason": "published_policy_missing"}),
+                        created_at=now,
+                    )
+                )
+                session.commit()
+                return {
+                    "shipment_id": shipment_id,
+                    "risk_score": 100,
+                    "risk_level": "HIGH",
+                    "factors": [
+                        {"code": "POLICY_CONFIGURATION", "detail": "Published policy unavailable"}
+                    ],
+                }
+            policy_rules = list(
+                session.scalars(
+                    select(RuleDefinitionRow).where(
+                        RuleDefinitionRow.rule_pack_id == policy.id,
+                        RuleDefinitionRow.active.is_(True),
+                    )
+                )
+            )
+            risk_policy = policy_risk_config(
+                [{"condition_json": row.condition_json} for row in policy_rules]
+            )
             evaluations = list(
                 session.execute(
                     select(RequirementEvaluationRow, DocumentRequirementRow)
@@ -2815,9 +4314,9 @@ class OperationsRepository:
                         severity="HIGH",
                         summary="Required documents are missing.",
                         details_json=json.dumps({"missing": missing}),
-                        source="DEMO_BASELINE_RULE_PACK",
-                        source_version="baseline-1",
-                        rule_pack_version="baseline-1",
+                        source="PUBLISHED_RULE_PACK",
+                        source_version=policy.version,
+                        rule_pack_version=policy.version,
                         started_at=now,
                         completed_at=now,
                         created_at=now,
@@ -2834,9 +4333,9 @@ class OperationsRepository:
                         severity="LOW",
                         summary="Required document evidence is present.",
                         details_json="{}",
-                        source="DEMO_BASELINE_RULE_PACK",
-                        source_version="baseline-1",
-                        rule_pack_version="baseline-1",
+                        source="PUBLISHED_RULE_PACK",
+                        source_version=policy.version,
+                        rule_pack_version=policy.version,
                         started_at=now,
                         completed_at=now,
                         created_at=now,
@@ -2870,9 +4369,9 @@ class OperationsRepository:
                             else "Dangerous-goods evidence requires review."
                         ),
                         details_json=json.dumps({"incomplete_items": dg_incomplete}),
-                        source="GateGuard deterministic DG baseline",
-                        source_version="1",
-                        rule_pack_version="baseline-1",
+                        source="PUBLISHED_RULE_PACK",
+                        source_version=policy.version,
+                        rule_pack_version=policy.version,
                         started_at=now,
                         completed_at=now,
                         created_at=now,
@@ -2883,16 +4382,21 @@ class OperationsRepository:
                 factors.append(("MISSING_REQUIRED_DOCUMENT", ", ".join(missing)))
             if dg_incomplete:
                 factors.append(("DANGEROUS_GOODS_INCOMPLETE", ", ".join(dg_incomplete)))
+            latest_checks: dict[str, AssuranceCheckRow] = {}
+            for check in session.scalars(
+                select(AssuranceCheckRow)
+                .where(AssuranceCheckRow.shipment_id == shipment_id)
+                .order_by(AssuranceCheckRow.created_at.desc())
+            ):
+                latest_checks.setdefault(check.check_type, check)
             if any(
-                check.status in {"HOLD", "REVIEW"}
-                for check in session.scalars(
-                    select(AssuranceCheckRow).where(AssuranceCheckRow.shipment_id == shipment_id)
-                )
+                check.status in {"HOLD", "REVIEW", "PENDING", "RUNNING", "FAILED"}
+                for check in latest_checks.values()
             ):
                 factors.append(
                     ("BLOCKING_ASSURANCE", "One or more assurance checks require review.")
                 )
-            assessment = calculate_risk(factors)
+            assessment = calculate_risk(factors, risk_policy)
             shipment.risk_score = assessment.score
             shipment.risk_level = assessment.level.value
             shipment.risk_factors_json = json.dumps(assessment.factors)
@@ -2920,6 +4424,7 @@ class OperationsRepository:
                 "risk_score": assessment.score,
                 "risk_level": assessment.level.value,
                 "factors": assessment.factors,
+                "policy_version": policy.version,
             }
 
     def run_screening(
@@ -2935,6 +4440,7 @@ class OperationsRepository:
             )
             if shipment is None:
                 raise NotFoundError("Shipment was not found in this workspace.")
+            policy = self._published_policy(session, organization_id=organization_id, now=now)
             party = session.scalar(
                 select(TradePartyRow)
                 .join(ShipmentPartyRow, ShipmentPartyRow.party_id == TradePartyRow.id)
@@ -2983,28 +4489,270 @@ class OperationsRepository:
                         "release_blocking": True,
                     }
                 ),
-                source="NOT_CONFIGURED",
-                source_version="N/A",
-                rule_pack_version="baseline-1",
+                source="PUBLISHED_RULE_PACK" if policy else "POLICY_CONFIGURATION",
+                source_version=policy.version if policy else "UNAVAILABLE",
+                rule_pack_version=policy.version if policy else None,
                 started_at=now,
                 completed_at=now,
                 created_at=now,
             )
-            session.add_all([run, check])
+            job = ProcessingJobRow(
+                id=str(uuid.uuid4()),
+                organization_id=organization_id,
+                shipment_id=shipment_id,
+                job_type=ProcessingJobType.SCREEN_PARTY.value,
+                status="QUEUED",
+                attempts=0,
+                max_attempts=2,
+                priority=55,
+                payload_json=json.dumps({"run_id": run.id, "party_id": party.id}),
+                queued_at=now,
+            )
+            session.add_all([run, check, job])
+            # This mutation only queues the provider job. Emit a started event
+            # here; the completed event is written by the worker after the
+            # screening result has been committed so consumers never observe a
+            # false success before the effect exists.
+            session.add(
+                DomainEventRow(
+                    id=str(uuid.uuid4()),
+                    organization_id=organization_id,
+                    event_type="screening.started",
+                    entity_type="shipment",
+                    entity_id=shipment_id,
+                    idempotency_key=f"screening:{run.id}:started",
+                    payload_json=json.dumps({"run_id": run.id, "party_id": party.id}),
+                    created_at=now,
+                )
+            )
+            session.commit()
+            session.refresh(run)
+            return row_dict(run) | {"party_name": party.legal_name, "job_id": job.id}
+
+    def complete_screening_job(self, *, organization_id: str, payload: dict[str, Any]) -> None:
+        """Finalize a screening job without ever treating missing provider data as clear."""
+        run_id = str(payload.get("run_id") or "")
+        if not run_id:
+            raise GateGuardError(
+                "Screening job is missing its run identifier.",
+                code="INVALID_JOB_PAYLOAD",
+                status_code=422,
+            )
+        with self.session_factory() as session:
+            run = session.scalar(
+                select(ScreeningRunRow).where(
+                    ScreeningRunRow.id == run_id,
+                    ScreeningRunRow.organization_id == organization_id,
+                )
+            )
+            if run is None:
+                raise NotFoundError("Screening run was not found in this workspace.")
+            if run.result in {"CLEAR", "MATCH", "NO_MATCH"} and run.provider != "NOT_CONFIGURED":
+                return
+            completed_key = f"screening:{run.id}:completed"
+            if session.scalar(
+                select(DomainEventRow.id).where(
+                    DomainEventRow.organization_id == organization_id,
+                    DomainEventRow.idempotency_key == completed_key,
+                )
+            ):
+                return
+            run.result = "NOT_CONFIGURED"
+            run.disposition = "REQUIRES_REVIEW"
             session.add(
                 DomainEventRow(
                     id=str(uuid.uuid4()),
                     organization_id=organization_id,
                     event_type="screening.completed",
                     entity_type="shipment",
-                    entity_id=shipment_id,
-                    payload_json=json.dumps({"result": run.result, "party_id": party.id}),
+                    entity_id=run.shipment_id,
+                    idempotency_key=completed_key,
+                    payload_json=json.dumps(
+                        {
+                            "run_id": run.id,
+                            "party_id": run.party_id,
+                            "result": run.result,
+                            "provider": run.provider,
+                        }
+                    ),
+                    created_at=now_utc(),
+                )
+            )
+            session.commit()
+
+    def adjudicate_screening(
+        self,
+        *,
+        organization_id: str,
+        run_id: str,
+        user: UserRow,
+        disposition: str,
+        comment: str,
+    ) -> dict[str, Any]:
+        """Record a human screening disposition and update the latest assurance check."""
+        allowed = {"CLEAR", "MATCH", "FALSE_POSITIVE", "REQUIRES_REVIEW"}
+        if disposition not in allowed:
+            raise GateGuardError(
+                "Screening disposition is invalid.", code="VALIDATION_ERROR", status_code=422
+            )
+        note = " ".join(comment.split())
+        if len(note) < 2:
+            raise GateGuardError(
+                "Screening adjudication requires a reason.",
+                code="VALIDATION_ERROR",
+                status_code=422,
+            )
+        now = now_utc()
+        with self.session_factory() as session:
+            run = session.scalar(
+                select(ScreeningRunRow).where(
+                    ScreeningRunRow.id == run_id,
+                    ScreeningRunRow.organization_id == organization_id,
+                )
+            )
+            if run is None:
+                raise NotFoundError("Screening run was not found in this workspace.")
+            if run.result == "NOT_CONFIGURED" and disposition != "REQUIRES_REVIEW":
+                raise GateGuardError(
+                    "An unavailable screening provider cannot be manually marked clear.",
+                    code="SCREENING_PROVIDER_UNAVAILABLE",
+                    status_code=409,
+                )
+            if run.result == "MATCH" and disposition == "CLEAR":
+                raise GateGuardError(
+                    "A matched screening result must be confirmed or marked false positive.",
+                    code="SCREENING_MATCH_REQUIRES_REVIEW",
+                    status_code=409,
+                )
+            if disposition == "FALSE_POSITIVE" and run.result != "MATCH":
+                raise GateGuardError(
+                    "False positive disposition requires a matched screening result.",
+                    code="SCREENING_DISPOSITION_INVALID",
+                    status_code=409,
+                )
+            run.disposition = disposition
+            run.reviewed_by = user.id
+            run.reviewed_at = now
+            check = session.scalar(
+                select(AssuranceCheckRow)
+                .where(
+                    AssuranceCheckRow.organization_id == organization_id,
+                    AssuranceCheckRow.shipment_id == run.shipment_id,
+                    AssuranceCheckRow.check_type == "PARTY_SCREENING",
+                )
+                .order_by(AssuranceCheckRow.created_at.desc())
+            )
+            status = (
+                "HOLD"
+                if disposition == "MATCH"
+                else "CLEAR"
+                if disposition in {"CLEAR", "FALSE_POSITIVE"}
+                else "REVIEW"
+            )
+            severity = "HIGH" if status == "HOLD" else "LOW" if status == "CLEAR" else "MEDIUM"
+            summary = (
+                "Screening match confirmed by a reviewer."
+                if disposition == "MATCH"
+                else "Screening match was marked false positive by a reviewer."
+                if disposition == "FALSE_POSITIVE"
+                else "Screening result was cleared by a reviewer."
+                if disposition == "CLEAR"
+                else "Screening remains in manual review."
+            )
+            if check is None:
+                check = AssuranceCheckRow(
+                    id=str(uuid.uuid4()),
+                    organization_id=organization_id,
+                    shipment_id=run.shipment_id,
+                    check_type="PARTY_SCREENING",
+                    started_at=run.screened_at,
+                    created_at=now,
+                )
+                session.add(check)
+            check.status = status
+            check.severity = severity
+            check.summary = summary
+            check.details_json = json.dumps(
+                {
+                    "party_id": run.party_id,
+                    "result": run.result,
+                    "disposition": disposition,
+                    "comment": note,
+                    "reviewed_by": user.id,
+                    "release_blocking": status != "CLEAR",
+                }
+            )
+            check.source = "HUMAN_ADJUDICATION"
+            check.source_version = run.dataset_version
+            check.completed_at = now
+            session.add(
+                DomainEventRow(
+                    id=str(uuid.uuid4()),
+                    organization_id=organization_id,
+                    event_type="screening.adjudicated",
+                    entity_type="shipment",
+                    entity_id=run.shipment_id,
+                    payload_json=json.dumps(
+                        {
+                            "run_id": run.id,
+                            "result": run.result,
+                            "disposition": disposition,
+                        }
+                    ),
                     created_at=now,
                 )
             )
             session.commit()
             session.refresh(run)
-            return row_dict(run) | {"party_name": party.legal_name}
+            return row_dict(run) | {"comment": note, "assurance_status": status}
+
+    @staticmethod
+    def _published_policy(
+        session: Session, *, organization_id: str, now: datetime
+    ) -> RulePackRow | None:
+        active_window = (
+            RulePackRow.status == "PUBLISHED",
+            or_(RulePackRow.effective_from.is_(None), RulePackRow.effective_from <= now),
+            or_(RulePackRow.effective_to.is_(None), RulePackRow.effective_to > now),
+        )
+        scoped = session.scalar(
+            select(RulePackRow)
+            .where(RulePackRow.organization_id == organization_id, *active_window)
+            .order_by(RulePackRow.published_at.desc())
+        )
+        if scoped is not None:
+            return scoped
+        return session.scalar(
+            select(RulePackRow)
+            .where(RulePackRow.organization_id.is_(None), *active_window)
+            .order_by(RulePackRow.published_at.desc())
+        )
+
+    def published_policy_metadata(self, *, organization_id: str) -> dict[str, Any] | None:
+        with self.session_factory() as session:
+            pack = self._published_policy(session, organization_id=organization_id, now=now_utc())
+            if pack is None:
+                return None
+            rules = list(
+                session.scalars(
+                    select(RuleDefinitionRow)
+                    .where(
+                        RuleDefinitionRow.rule_pack_id == pack.id,
+                        RuleDefinitionRow.active.is_(True),
+                    )
+                    .order_by(RuleDefinitionRow.rule_id.asc())
+                )
+            )
+            return {
+                "id": pack.id,
+                "name": pack.name,
+                "version": pack.version,
+                "scope": pack.scope,
+                "rules": [
+                    row_dict(rule) | {"condition": json.loads(rule.condition_json or "{}")}
+                    for rule in rules
+                ],
+            }
 
     def heartbeat(
         self,
@@ -3067,6 +4815,29 @@ class OperationsRepository:
             session.commit()
             return row_dict(job)
 
+    def recover_stale_jobs(self, *, stale_after_seconds: int = 180) -> int:
+        cutoff = now_utc() - timedelta(seconds=max(30, stale_after_seconds))
+        with self.session_factory() as session:
+            rows = list(
+                session.scalars(
+                    select(ProcessingJobRow).where(
+                        ProcessingJobRow.status == "RUNNING",
+                        or_(
+                            ProcessingJobRow.heartbeat_at.is_(None),
+                            ProcessingJobRow.heartbeat_at < cutoff,
+                        ),
+                    )
+                )
+            )
+            for job in rows:
+                job.status = "QUEUED"
+                job.next_attempt_at = now_utc()
+                job.error_code = "STALE_LEASE_RECOVERED"
+                job.safe_error = "The worker lease expired; the job was returned to the queue."
+                job.heartbeat_at = now_utc()
+            session.commit()
+            return len(rows)
+
     def finish_job(
         self,
         *,
@@ -3086,18 +4857,44 @@ class OperationsRepository:
                 job.status = "SUCCEEDED"
                 job.error_code = None
                 job.safe_error = None
+                job.next_attempt_at = None
             elif job.attempts >= job.max_attempts:
                 job.status = "DEAD_LETTER"
                 job.error_code = error_code or "JOB_FAILED"
                 job.safe_error = safe_error or "The job exceeded its retry limit."
                 job.completed_at = now
+                job.next_attempt_at = None
+                if job.job_type == ProcessingJobType.SEND_WEBHOOK.value:
+                    try:
+                        delivery_id = json.loads(job.payload_json or "{}").get("delivery_id")
+                    except (TypeError, ValueError):
+                        delivery_id = None
+                    if delivery_id:
+                        delivery = session.get(WebhookDeliveryRow, str(delivery_id))
+                        if delivery and delivery.organization_id == job.organization_id:
+                            delivery.status = "FAILED"
+                            delivery.last_error = (
+                                safe_error or "The webhook delivery exceeded its retry limit."
+                            )[:240]
+                            delivery.next_attempt_at = None
+                            if delivery.attempts >= 5:
+                                subscription = session.scalar(
+                                    select(WebhookSubscriptionRow).where(
+                                        WebhookSubscriptionRow.id == delivery.subscription_id,
+                                        WebhookSubscriptionRow.organization_id
+                                        == job.organization_id,
+                                    )
+                                )
+                                if subscription:
+                                    subscription.enabled = False
+                                    subscription.updated_at = now
             else:
                 job.status = "QUEUED"
                 job.error_code = error_code or "JOB_RETRY"
                 job.safe_error = safe_error or "The job will be retried."
-                job.next_attempt_at = now + timedelta(
-                    seconds=min(300, 2 ** max(job.attempts, 1) * 5)
-                )
+                backoff = min(300, 2 ** max(job.attempts, 1) * 5)
+                jitter = secrets.SystemRandom().uniform(0, max(1.0, backoff * 0.25))
+                job.next_attempt_at = now + timedelta(seconds=backoff + jitter)
             session.commit()
 
     @staticmethod
@@ -3222,13 +5019,16 @@ class OperationsRepository:
                     code="INVALID_RELEASE_STATE",
                     status_code=409,
                 )
-            if snapshot_hash(
-                self._current_release_snapshot(
-                    session,
-                    organization_id=organization_id,
-                    shipment_id=shipment.id,
+            if (
+                snapshot_hash(
+                    self._current_release_snapshot(
+                        session,
+                        organization_id=organization_id,
+                        shipment_id=shipment.id,
+                    )
                 )
-            ) != decision.evidence_hash:
+                != decision.evidence_hash
+            ):
                 decision.invalidated_at = now
                 shipment.status = ShipmentStatus.RELEASE_INVALIDATED.value
                 shipment.updated_at = now
@@ -3341,13 +5141,16 @@ class OperationsRepository:
                         code="FOUR_EYES_REQUIRED",
                         status_code=409,
                     )
-                if snapshot_hash(
-                    self._current_release_snapshot(
-                        session,
-                        organization_id=organization_id,
-                        shipment_id=shipment_id,
+                if (
+                    snapshot_hash(
+                        self._current_release_snapshot(
+                            session,
+                            organization_id=organization_id,
+                            shipment_id=shipment_id,
+                        )
                     )
-                ) != latest.evidence_hash:
+                    != latest.evidence_hash
+                ):
                     latest.invalidated_at = now
                     shipment.status = ShipmentStatus.RELEASE_INVALIDATED.value
                     shipment.updated_at = now

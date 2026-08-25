@@ -9,6 +9,7 @@
   --cf-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --cf-text-page-title: 24px;
   --cf-text-section-title: 16px;
+  --cf-text-xl: 20px;
   --cf-text-body: 14px;
   --cf-text-label: 13px;
   --cf-text-metadata: 12px;
@@ -44,8 +45,12 @@
   --cf-surface-raised: var(--color-kumo-elevated);
   --cf-surface-subtle: var(--color-kumo-recessed);
   --cf-line: var(--color-kumo-line);
+  --cf-line-strong: var(--color-kumo-neutral-450);
   --cf-hairline: var(--color-kumo-hairline);
   --cf-text: var(--color-kumo-contrast);
+  --cf-text-heading: var(--cf-text);
+  --cf-text-sm: var(--cf-text-body);
+  --cf-text-xs: var(--cf-text-metadata);
   --cf-text-muted: var(--color-kumo-neutral-750);
   --cf-text-faint: var(--color-kumo-neutral-600);
   --cf-link: var(--color-kumo-brand);

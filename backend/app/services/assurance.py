@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,32 +15,69 @@ class RiskAssessment:
     factors: list[dict[str, Any]]
 
 
-RISK_WEIGHTS: dict[str, int] = {
-    "BLOCKING_ASSURANCE": 40,
-    "MISSING_REQUIRED_DOCUMENT": 25,
-    "TRUSTED_SOURCE_CONFLICT": 25,
-    "HIGH_CRITICAL_EXCEPTION": 30,
-    "LOW_CONFIDENCE_CRITICAL_FIELD": 15,
-    "DANGEROUS_GOODS_INCOMPLETE": 20,
-    "SCREENING_POTENTIAL_MATCH": 30,
-    "RELEASE_INVALIDATED": 25,
-}
+def policy_risk_config(rule_definitions: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    """Read risk scoring from the immutable published rule-pack.
+
+    Risk is deliberately data-driven.  The evaluator has no product-specific
+    weight table; a missing policy rule is treated as an unsafe configuration
+    so a workspace cannot accidentally downgrade an unknown blocker.
+    """
+    weights: dict[str, int] = {}
+    thresholds: dict[str, int] = {}
+    for definition in rule_definitions:
+        condition = definition.get("condition", definition.get("condition_json", {}))
+        if isinstance(condition, str):
+            try:
+                condition = json.loads(condition)
+            except json.JSONDecodeError:
+                condition = {}
+        if not isinstance(condition, Mapping):
+            continue
+        factor = condition.get("risk_factor")
+        if factor:
+            try:
+                weight = int(condition.get("weight", 0))
+            except (TypeError, ValueError):
+                weight = 0
+            if 0 <= weight <= 100:
+                weights[str(factor)] = weight
+        threshold = condition.get("risk_level")
+        if threshold:
+            try:
+                value = int(condition.get("threshold"))
+            except (TypeError, ValueError):
+                continue
+            if 0 <= value <= 100:
+                thresholds[str(threshold).upper()] = value
+    return {"weights": weights, "thresholds": thresholds}
 
 
-def calculate_risk(active_factors: list[tuple[str, str]]) -> RiskAssessment:
-    """Calculate a transparent, deterministic risk score from persisted findings."""
+def calculate_risk(
+    active_factors: list[tuple[str, str]],
+    policy: Mapping[str, Any] | None = None,
+) -> RiskAssessment:
+    """Calculate a transparent, deterministic risk score from a published policy."""
+    config = policy or {}
+    weights = config.get("weights", {}) if isinstance(config, Mapping) else {}
+    thresholds = config.get("thresholds", {}) if isinstance(config, Mapping) else {}
     factors: list[dict[str, Any]] = []
     score = 0
     for code, reason in active_factors:
-        weight = RISK_WEIGHTS.get(code, 10)
+        raw_weight = weights.get(code) if isinstance(weights, Mapping) else None
+        # Unknown findings remain maximally conservative until a published
+        # policy explicitly assigns their operational weight.
+        weight = int(raw_weight) if raw_weight is not None else 100
         score += weight
         factors.append({"code": code, "reason": reason, "weight": weight})
     bounded = min(score, 100)
-    if bounded >= 75:
+    critical = int(thresholds.get("CRITICAL", 75)) if isinstance(thresholds, Mapping) else 75
+    high = int(thresholds.get("HIGH", 50)) if isinstance(thresholds, Mapping) else 50
+    medium = int(thresholds.get("MEDIUM", 25)) if isinstance(thresholds, Mapping) else 25
+    if bounded >= critical:
         level = RiskLevel.CRITICAL
-    elif bounded >= 50:
+    elif bounded >= high:
         level = RiskLevel.HIGH
-    elif bounded >= 25:
+    elif bounded >= medium:
         level = RiskLevel.MEDIUM
     else:
         level = RiskLevel.LOW

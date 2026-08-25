@@ -54,7 +54,7 @@ def test_unconfigured_screening_blocks_release_with_review_evidence():
     assert "manual disposition" in check.summary.casefold()
 
 
-def test_webhook_configuration_does_not_claim_delivery_capability():
+def test_webhook_configuration_queues_real_delivery_capability():
     client = login(TestClient(app))
     created = client.post(
         "/api/integrations/webhooks",
@@ -65,17 +65,35 @@ def test_webhook_configuration_does_not_claim_delivery_capability():
         },
     )
     assert created.status_code == 201, created.text
-    assert created.json()["subscription"]["delivery_capability"] == "NOT_IMPLEMENTED"
+    assert created.json()["subscription"]["delivery_capability"] == "QUEUED_DELIVERY"
 
     listed = client.get("/api/integrations/webhooks")
     assert listed.status_code == 200, listed.text
     assert any(
-        item["delivery_capability"] == "NOT_IMPLEMENTED" for item in listed.json()["items"]
+        item["delivery_capability"] == "QUEUED_DELIVERY" for item in listed.json()["items"]
     )
+    listed_item = next(
+        item for item in listed.json()["items"] if item["name"] == "Truthful callback"
+    )
+    assert "secret_hash" not in listed_item
+    assert "secret_ciphertext" not in listed_item
+
+    test_delivery = client.post(
+        f"/api/integrations/webhooks/{listed_item['id']}/test",
+        json={"payload": {"fixture": "truthfulness"}},
+    )
+    assert test_delivery.status_code == 202, test_delivery.text
+    assert test_delivery.json()["delivery"]["status"] == "QUEUED"
+    deliveries = client.get(
+        f"/api/integrations/webhooks/{listed_item['id']}/deliveries"
+    )
+    assert deliveries.status_code == 200, deliveries.text
+    assert deliveries.json()["items"][0]["event_type"] == "webhook.test"
+    assert "payload_json" not in deliveries.json()["items"][0]
 
     observability = client.get("/api/observability")
     assert observability.status_code == 200, observability.text
-    assert observability.json()["webhook"] == "configured_not_dispatched"
+    assert observability.json()["webhook"] == "configured_queued"
 
 
 def test_incomplete_dangerous_goods_forces_hold_after_assessment():

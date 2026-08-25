@@ -77,7 +77,7 @@ def _authorizable_shipment(tmp_path):
         ).update({"result": "CLEAR"})
         session.query(AssuranceCheckRow).filter(
             AssuranceCheckRow.shipment_id == shipment["id"]
-        ).update({"status": "CLEAR", "source_version": "baseline-1"})
+        ).update({"status": "CLEAR", "source_version": "2026.08.1"})
         shipment_row = session.get(ShipmentCaseRow, shipment["id"])
         assert shipment_row is not None
         shipment_row.status = ShipmentStatus.REVIEW_REQUIRED.value

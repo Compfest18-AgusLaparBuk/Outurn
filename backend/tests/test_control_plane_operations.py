@@ -100,6 +100,20 @@ def test_document_vault_trusted_source_screening_and_worker_flow():
     screening = client.post(f"/api/shipments/{shipment_id}/screening")
     assert screening.status_code == 202, screening.text
     assert screening.json()["result"] == "NOT_CONFIGURED"
+    screening_rows = client.get("/api/screening")
+    assert screening_rows.status_code == 200
+    run_id = screening_rows.json()["items"][0]["run"]["id"]
+    unavailable_clear = client.patch(
+        f"/api/screening/{run_id}/adjudication",
+        json={"disposition": "CLEAR", "comment": "Must not bypass provider"},
+    )
+    assert unavailable_clear.status_code == 409
+    adjudicated = client.patch(
+        f"/api/screening/{run_id}/adjudication",
+        json={"disposition": "REQUIRES_REVIEW", "comment": "Provider unavailable"},
+    )
+    assert adjudicated.status_code == 200, adjudicated.text
+    assert adjudicated.json()["assurance_status"] == "REVIEW"
 
     assessment = client.post(f"/api/shipments/{shipment_id}/assess")
     assert assessment.status_code == 202, assessment.text

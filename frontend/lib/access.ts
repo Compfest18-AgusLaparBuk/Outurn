@@ -1,13 +1,20 @@
 import type { UserRole } from "@/lib/types";
 
-const ROLE_LEVEL: Record<UserRole, number> = {
+const ROLE_LEVEL: Record<string, number> = {
   operator: 1,
   supervisor: 2,
   admin: 3,
 };
 
-export function hasMinimumRole(role: UserRole | undefined | null, minimum: UserRole): boolean {
-  return role !== undefined && role !== null && ROLE_LEVEL[role] >= ROLE_LEVEL[minimum];
+export function hasMinimumRole(
+  role: UserRole | string | undefined | null,
+  minimum: UserRole,
+): boolean {
+  return (
+    role !== undefined &&
+    role !== null &&
+    ROLE_LEVEL[role] >= ROLE_LEVEL[minimum]
+  );
 }
 
 export function isAdministrator(role: UserRole | undefined | null): boolean {

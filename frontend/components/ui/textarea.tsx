@@ -1,4 +1,9 @@
+import { Textarea } from "@cloudflare/kumo/components/input";
 import { forwardRef, type TextareaHTMLAttributes } from "react";
+
+function join(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
+}
 
 type AppTextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & {
   label: string;
@@ -7,21 +12,24 @@ type AppTextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & {
 };
 
 export const AppTextarea = forwardRef<HTMLTextAreaElement, AppTextareaProps>(
-  function AppTextarea({ label, description, error, className = "", id, ...props }, ref) {
-    const controlId = id || `textarea-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-    const descriptionId = description || error ? `${controlId}-description` : undefined;
+  function AppTextarea(
+    { label, description, error, className = "", id, ...props },
+    ref,
+  ) {
+    const controlId =
+      id || `textarea-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     return (
-      <div className={`app-textarea ${className}`}>
-        <label htmlFor={controlId}>{label}</label>
-        <textarea
+      <div className={join("app-textarea", className)}>
+        <Textarea
           ref={ref}
           id={controlId}
           className="app-textarea__control"
-          aria-describedby={descriptionId}
-          aria-invalid={Boolean(error)}
+          label={label}
+          description={description}
+          error={error}
+          variant={error ? "error" : "default"}
           {...props}
         />
-        {error ? <p id={descriptionId} role="alert" className="app-textarea__error">{error}</p> : description ? <p id={descriptionId} className="app-textarea__description">{description}</p> : null}
       </div>
     );
   },

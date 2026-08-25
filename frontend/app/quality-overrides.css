@@ -116,3 +116,98 @@
 .form-grid label > [role="combobox"] {
   width: 100%;
 }
+
+/* Every filter surface uses the same Kumo control rhythm and a stable select
+ * width, so labels do not jump as options or result counts change. */
+.filter-bar,
+.operations-toolbar,
+.cf-job-toolbar,
+.cf-reference-toolbar,
+.cf-audit-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cf-space-2);
+}
+
+.filter-bar [data-kumo-component="Select"][data-kumo-part="trigger"],
+.operations-toolbar [data-kumo-component="Select"][data-kumo-part="trigger"],
+.cf-job-toolbar [data-kumo-component="Select"][data-kumo-part="trigger"],
+.cf-reference-toolbar [data-kumo-component="Select"][data-kumo-part="trigger"],
+.cf-audit-filter-bar [data-kumo-component="Select"][data-kumo-part="trigger"] {
+  width: 168px;
+  min-width: 168px;
+}
+
+.filter-bar .operations-search,
+.operations-toolbar .operations-search,
+.cf-job-toolbar .cf-job-search,
+.cf-reference-toolbar .cf-job-search,
+.cf-audit-filter-bar .cf-audit-search {
+  min-width: min(300px, 100%);
+  flex: 1 1 300px;
+}
+
+/* Kumo owns the shell geometry. Keep application chrome as content inside the
+ * provider so collapse, tooltip, and mobile-sheet behavior stay consistent. */
+.console-shell__layout[data-sidebar-wrapper] {
+  min-height: 100svh;
+  align-items: stretch;
+}
+
+.console-shell .console-sidebar:not([data-mobile="true"]) {
+  --sidebar-width: var(--cf-shell-sidebar);
+  --sidebar-width-icon: var(--cf-shell-sidebar-collapsed);
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  height: 100svh;
+  max-height: none;
+  overflow: visible;
+  border-right: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.console-shell .console-sidebar__content {
+  background: var(--cf-surface);
+}
+
+.console-shell .console-main,
+.console-shell[data-sidebar-collapsed="true"] .console-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin-left: 0 !important;
+}
+
+.console-shell .console-sidebar__nav {
+  min-height: 0;
+}
+
+.console-shell[data-sidebar-collapsed="true"] .console-sidebar__brand {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 0;
+}
+
+.console-shell[data-sidebar-collapsed="true"] .console-sidebar__brand .console-brand-mark {
+  display: none;
+}
+
+.console-shell[data-sidebar-collapsed="true"] .console-sidebar__toggle {
+  margin-left: 0;
+}
+
+@media (max-width: 900px) {
+  .console-shell .console-sidebar[data-mobile="true"] {
+    width: min(304px, calc(100vw - 48px)) !important;
+    max-height: none;
+    overflow: hidden;
+    box-shadow: var(--cf-shadow-overlay);
+  }
+
+  .console-shell__layout[data-state="expanded"] .console-sidebar[data-mobile="true"] {
+    transform: translateX(0) !important;
+  }
+}

@@ -17,6 +17,8 @@ COPY --chown=gateguard:gateguard backend/app /app/app
 COPY --chown=gateguard:gateguard backend/alembic /app/alembic
 COPY --chown=gateguard:gateguard backend/alembic.ini /app/alembic.ini
 COPY --chown=gateguard:gateguard backend/scripts /app/scripts
+RUN mkdir -p /data/documents \
+    && chown -R gateguard:gateguard /data
 
 USER gateguard
 EXPOSE 8000

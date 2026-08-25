@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -32,7 +32,7 @@ from app.domain.models import (
     ShipmentStatus,
     WorkQueueStatus,
 )
-from app.services.assurance import calculate_risk
+from app.services.assurance import calculate_risk, policy_risk_config
 from app.services.release_integrity import build_release_snapshot, snapshot_hash
 
 
@@ -470,12 +470,26 @@ class ReconciliationRepository:
 
     @staticmethod
     def _shipment_dict(session: Session, row: ShipmentCaseRow) -> dict[str, Any]:
+        from app.repositories.operations import WorkspaceMembershipRow
+
         reference = session.scalar(
             select(TrustedShipmentReferenceRow).where(
                 TrustedShipmentReferenceRow.shipment_id == row.id
             )
         )
-        assignee = session.get(UserRow, row.assigned_to) if row.assigned_to else None
+        assignee = (
+            session.scalar(
+                select(UserRow)
+                .join(WorkspaceMembershipRow, WorkspaceMembershipRow.user_id == UserRow.id)
+                .where(
+                    UserRow.id == row.assigned_to,
+                    WorkspaceMembershipRow.organization_id == row.organization_id,
+                    WorkspaceMembershipRow.active.is_(True),
+                )
+            )
+            if row.assigned_to and row.organization_id
+            else None
+        )
         open_tasks = (
             session.scalar(
                 select(func.count(ReviewTaskRow.id)).where(
@@ -528,7 +542,10 @@ class ReconciliationRepository:
             FacilityRow,
             OrganizationRow,
             RequirementEvaluationRow,
+            RulePackRow,
             WorkspaceMembershipRow,
+            WorkspaceSettingRow,
+            normalize_review_policy,
         )
 
         now = datetime.now(UTC)
@@ -541,6 +558,40 @@ class ReconciliationRepository:
             )
             if organization is None:
                 raise NotFoundError("Workspace was not found.")
+            review_setting = session.scalar(
+                select(WorkspaceSettingRow).where(
+                    WorkspaceSettingRow.organization_id == organization_id,
+                    WorkspaceSettingRow.setting_key == "review_policy",
+                )
+            )
+            review_policy = normalize_review_policy(
+                json.loads(review_setting.value_json) if review_setting else {}
+            )
+            policy = session.scalar(
+                select(RulePackRow)
+                .where(
+                    RulePackRow.organization_id == organization_id,
+                    RulePackRow.status == "PUBLISHED",
+                    or_(RulePackRow.effective_from.is_(None), RulePackRow.effective_from <= now),
+                    or_(RulePackRow.effective_to.is_(None), RulePackRow.effective_to > now),
+                )
+                .order_by(RulePackRow.published_at.desc())
+            )
+            if policy is None:
+                policy = session.scalar(
+                    select(RulePackRow)
+                    .where(
+                        RulePackRow.organization_id.is_(None),
+                        RulePackRow.status == "PUBLISHED",
+                        or_(
+                            RulePackRow.effective_from.is_(None), RulePackRow.effective_from <= now
+                        ),
+                        or_(RulePackRow.effective_to.is_(None), RulePackRow.effective_to > now),
+                    )
+                    .order_by(RulePackRow.published_at.desc())
+                )
+            policy_version = policy.version if policy else "UNAVAILABLE"
+            policy_source = "PUBLISHED_RULE_PACK" if policy else "POLICY_CONFIGURATION"
             if isinstance(actor, ServicePrincipal):
                 if actor.organization_id != organization_id:
                     raise GateGuardError(
@@ -632,6 +683,7 @@ class ReconciliationRepository:
                 stage="Documents",
                 status=WorkQueueStatus.OPEN.value,
                 severity=RiskLevel.LOW.value,
+                due_at=now + timedelta(hours=int(review_policy["low_sla_hours"])),
                 last_activity_at=now,
                 created_at=now,
                 updated_at=now,
@@ -661,9 +713,9 @@ class ReconciliationRepository:
                     requirement = DocumentRequirementRow(
                         id=str(uuid.uuid4()),
                         organization_id=organization.id,
-                        rule_pack_id=None,
-                        rule_id=f"BASE-{document_type}",
-                        rule_pack_version="baseline-1",
+                        rule_pack_id=policy.id if policy else None,
+                        rule_id=f"{policy_version}:{document_type}",
+                        rule_pack_version=policy_version,
                         name=name,
                         document_type=document_type,
                         status="ACTIVE",
@@ -681,7 +733,7 @@ class ReconciliationRepository:
                     shipment_id=shipment.id,
                     requirement_id=requirement.id,
                     rule_id=requirement.rule_id,
-                    rule_pack_version="baseline-1",
+                    rule_pack_version=policy_version,
                     result="PENDING",
                     reason="Required evidence has not been attached yet.",
                     evaluated_at=now,
@@ -699,9 +751,9 @@ class ReconciliationRepository:
                     severity="MEDIUM",
                     summary="Required shipment evidence is still missing.",
                     details_json=json.dumps({"required": len(requirements), "attached": 0}),
-                    source="GateGuard baseline requirements",
-                    source_version="baseline-1",
-                    rule_pack_version="baseline-1",
+                    source=policy_source,
+                    source_version=policy_version,
+                    rule_pack_version=policy.version if policy else None,
                     created_at=now,
                 )
             )
@@ -784,6 +836,8 @@ class ReconciliationRepository:
         assignee: str | None = None,
         organization_id: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
+        from app.repositories.operations import WorkspaceMembershipRow
+
         with self.session_factory() as session:
             filters = []
             if organization_id:
@@ -822,8 +876,18 @@ class ReconciliationRepository:
                     "stage": task.stage,
                     "status": task.status,
                     "assignee": (
-                        session.get(UserRow, task.assignee).display_name
-                        if task.assignee and session.get(UserRow, task.assignee)
+                        session.scalar(
+                            select(UserRow.display_name)
+                            .join(
+                                WorkspaceMembershipRow, WorkspaceMembershipRow.user_id == UserRow.id
+                            )
+                            .where(
+                                UserRow.id == task.assignee,
+                                WorkspaceMembershipRow.organization_id == shipment.organization_id,
+                                WorkspaceMembershipRow.active.is_(True),
+                            )
+                        )
+                        if task.assignee
                         else None
                     ),
                     "due_at": task.due_at,
@@ -842,11 +906,6 @@ class ReconciliationRepository:
             task = session.get(ReviewTaskRow, task_id)
             if task is None:
                 raise NotFoundError("Work queue item was not found.")
-            task.status = status
-            task.assignee = (
-                actor.id if status == WorkQueueStatus.IN_PROGRESS.value else task.assignee
-            )
-            task.updated_at = now
             shipment = session.scalar(
                 select(ShipmentCaseRow).where(
                     ShipmentCaseRow.id == task.shipment_id,
@@ -859,6 +918,11 @@ class ReconciliationRepository:
             )
             if shipment is None:
                 raise NotFoundError("Work queue item was not found in this workspace.")
+            task.status = status
+            task.assignee = (
+                actor.id if status == WorkQueueStatus.IN_PROGRESS.value else task.assignee
+            )
+            task.updated_at = now
             if shipment:
                 remaining = (
                     session.scalar(
@@ -904,6 +968,8 @@ class ReconciliationRepository:
             DocumentRequirementRow,
             DomainEventRow,
             RequirementEvaluationRow,
+            RuleDefinitionRow,
+            RulePackRow,
             ShipmentExceptionRow,
             TrustedShipmentReferenceRow,
         )
@@ -926,6 +992,41 @@ class ReconciliationRepository:
                 raise GateGuardError(
                     "Release decision is invalid.", code="VALIDATION_ERROR", status_code=422
                 )
+            active_window = (
+                RulePackRow.status == "PUBLISHED",
+                or_(RulePackRow.effective_from.is_(None), RulePackRow.effective_from <= now),
+                or_(RulePackRow.effective_to.is_(None), RulePackRow.effective_to > now),
+            )
+            policy = session.scalar(
+                select(RulePackRow)
+                .where(RulePackRow.organization_id == shipment.organization_id, *active_window)
+                .order_by(RulePackRow.published_at.desc())
+            ) or session.scalar(
+                select(RulePackRow)
+                .where(RulePackRow.organization_id.is_(None), *active_window)
+                .order_by(RulePackRow.published_at.desc())
+            )
+            if policy is None and decision == "AUTHORIZE":
+                raise GateGuardError(
+                    "No published release policy is available for this workspace.",
+                    code="POLICY_CONFIGURATION",
+                    status_code=409,
+                )
+            risk_policy = policy_risk_config(
+                [
+                    {"condition_json": row.condition_json}
+                    for row in (
+                        session.scalars(
+                            select(RuleDefinitionRow).where(
+                                RuleDefinitionRow.rule_pack_id == policy.id,
+                                RuleDefinitionRow.active.is_(True),
+                            )
+                        )
+                        if policy
+                        else []
+                    )
+                ]
+            )
             open_tasks = (
                 session.scalar(
                     select(func.count(ReviewTaskRow.id)).where(
@@ -1008,7 +1109,8 @@ class ReconciliationRepository:
             risk = calculate_risk(
                 [("BLOCKING_ASSURANCE", item) for item in blocking_checks]
                 + [("HIGH_CRITICAL_EXCEPTION", item) for item in blocking_exceptions]
-                + [("MISSING_REQUIRED_DOCUMENT", item) for item in missing_requirements]
+                + [("MISSING_REQUIRED_DOCUMENT", item) for item in missing_requirements],
+                risk_policy,
             )
             shipment.status = (
                 ShipmentStatus.RELEASE_PENDING_APPROVAL.value
@@ -1040,7 +1142,16 @@ class ReconciliationRepository:
                     reason=reason,
                     decision_snapshot_json=json.dumps(snapshot),
                     evidence_hash=evidence_hash,
-                    rule_pack_versions_json=json.dumps(["baseline-1"]),
+                    rule_pack_versions_json=json.dumps(
+                        sorted(
+                            {
+                                check.rule_pack_version
+                                for check in latest_checks.values()
+                                if check.rule_pack_version
+                            }
+                        )
+                        or ([policy.version] if policy else ["UNAVAILABLE"])
+                    ),
                     assurance_check_versions_json=json.dumps(
                         [check.source_version for check in latest_checks.values()]
                     ),

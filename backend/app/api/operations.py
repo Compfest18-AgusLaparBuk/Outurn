@@ -2,28 +2,55 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from starlette.background import BackgroundTask
 from starlette.responses import StreamingResponse
 
 from app.auth.dependencies import current_user, require_role
 from app.core.config import get_settings
 from app.core.errors import GateGuardError
-from app.repositories.operations import DomainEventRow, OperationsRepository
+from app.repositories.operations import ApiIdempotencyRow, DomainEventRow, OperationsRepository
 from app.repositories.reconciliations import UserRow
 from app.services.document_storage import DocumentStorage
 from app.services.file_validation import validate_upload
 
 router = APIRouter()
+
+_SERVICE_RATE_LIMIT: dict[str, tuple[int, float]] = {}
+_SERVICE_RATE_LIMIT_LOCK = threading.Lock()
+
+
+def enforce_service_rate_limit(principal: Any) -> None:
+    """Bound partner API traffic per service account without touching BFF limits."""
+    now = time.monotonic()
+    key = str(principal.service_account_id)
+    with _SERVICE_RATE_LIMIT_LOCK:
+        count, window = _SERVICE_RATE_LIMIT.get(key, (0, now))
+        if now - window >= 60:
+            count, window = 0, now
+        if count >= 120:
+            raise GateGuardError(
+                "Service API rate limit exceeded.", code="RATE_LIMITED", status_code=429
+            )
+        _SERVICE_RATE_LIMIT[key] = (count + 1, window)
+        if len(_SERVICE_RATE_LIMIT) > 10_000:
+            expired = [
+                item for item, (_, started) in _SERVICE_RATE_LIMIT.items() if now - started >= 60
+            ]
+            for item in expired[:1_000]:
+                _SERVICE_RATE_LIMIT.pop(item, None)
 
 
 @lru_cache
@@ -64,10 +91,20 @@ class SettingsPayload(BaseModel):
     values: dict[str, Any] = Field(default_factory=dict)
 
 
+class RetentionLegalHoldPayload(BaseModel):
+    reason: str = Field(default="", max_length=500)
+    active: bool = True
+
+
 class ConnectionPayload(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     type: str = Field(min_length=2, max_length=32)
     configuration: dict[str, Any] = Field(default_factory=dict)
+    credential_reference: str | None = Field(default=None, max_length=160)
+
+
+class ConnectionCredentialPayload(BaseModel):
+    credential_reference: str | None = Field(default=None, max_length=160)
 
 
 class WebhookPayload(BaseModel):
@@ -76,9 +113,15 @@ class WebhookPayload(BaseModel):
     events: list[str] = Field(default_factory=list, max_length=20)
 
 
+class WebhookTestPayload(BaseModel):
+    event_type: str = Field(default="webhook.test", min_length=2, max_length=80)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class ServiceAccountPayload(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     scopes: list[str] = Field(default_factory=lambda: ["shipment.read"], max_length=20)
+    expires_at: datetime | None = None
 
 
 class ReferenceDataPayload(BaseModel):
@@ -109,6 +152,11 @@ class ExceptionActionPayload(BaseModel):
     assigned_to: str | None = Field(default=None, max_length=36)
     resolution_code: str | None = Field(default=None, max_length=64)
     resolution_note: str | None = Field(default=None, max_length=2000)
+
+
+class ScreeningAdjudicationPayload(BaseModel):
+    disposition: Literal["CLEAR", "MATCH", "FALSE_POSITIVE", "REQUIRES_REVIEW"]
+    comment: str = Field(min_length=2, max_length=1000)
 
 
 class ExceptionCommentPayload(BaseModel):
@@ -198,6 +246,41 @@ def organizations(user: UserRow = Depends(current_user)):
     return {"items": get_operations().list_organizations(user)}
 
 
+@router.get("/api/workspace-context")
+def workspace_context(request: Request, user: UserRow = Depends(current_user)):
+    org = organization(request, user)
+    role = get_operations().membership_role_for(organization_id=org.id, user_id=user.id)
+    permissions = {
+        "operator": {
+            "workspace.read",
+            "shipment.read",
+            "shipment.write",
+            "assurance.read",
+            "exception.write",
+            "screening.write",
+            "notification.write",
+        },
+        "supervisor": {
+            "workspace.read",
+            "shipment.read",
+            "shipment.write",
+            "assurance.read",
+            "exception.write",
+            "screening.write",
+            "release.approve",
+            "jobs.manage",
+            "integrations.read",
+            "notification.write",
+        },
+        "admin": {"*"},
+    }[role]
+    return {
+        "organization": {"id": org.id, "name": org.name, "code": org.code},
+        "role": role,
+        "permissions": sorted(permissions),
+    }
+
+
 @router.get("/api/recents")
 def recents(request: Request, user: UserRow = Depends(current_user)):
     org = organization(request, user)
@@ -231,6 +314,9 @@ def search(
         "items": get_operations().search(
             organization_id=org.id,
             user=user,
+            workspace_role=get_operations().membership_role_for(
+                organization_id=org.id, user_id=user.id
+            ),
             query=q,
             limit=limit,
             types=set(types or []),
@@ -251,6 +337,14 @@ def shipment_workspace(shipment_id: str, request: Request, user: UserRow = Depen
         href=f"/shipments/{shipment_id}",
     )
     return detail
+
+
+@router.get("/api/shipments/{shipment_id}/release-gate")
+def shipment_release_gate(
+    shipment_id: str, request: Request, user: UserRow = Depends(current_user)
+):
+    org = organization(request, user)
+    return get_operations().release_gate_snapshot(organization_id=org.id, shipment_id=shipment_id)
 
 
 @router.post("/api/shipments/{shipment_id}/assess", status_code=202)
@@ -692,6 +786,25 @@ def run_screening(
     return result
 
 
+@router.patch("/api/screening/{run_id}/adjudication")
+def adjudicate_screening(
+    run_id: str,
+    payload: ScreeningAdjudicationPayload,
+    request: Request,
+    user: UserRow = Depends(require_role("supervisor", "admin")),
+):
+    org = organization(request, user)
+    result = get_operations().adjudicate_screening(
+        organization_id=org.id,
+        run_id=run_id,
+        user=user,
+        disposition=payload.disposition,
+        comment=payload.comment,
+    )
+    audit(request, "screening.adjudicated", "screening_run", run_id, user)
+    return result
+
+
 @router.get("/api/dangerous-goods")
 def dangerous_goods(request: Request, user: UserRow = Depends(current_user)):
     org = organization(request, user)
@@ -810,9 +923,7 @@ def observability(request: Request, user: UserRow = Depends(current_user)):
         ],
         "extraction": "configured" if configured_extraction else "needs_setup",
         "webhook": (
-            "configured_not_dispatched"
-            if any(item["enabled"] for item in webhooks)
-            else "not_configured"
+            "configured_queued" if any(item["enabled"] for item in webhooks) else "not_configured"
         ),
         "connections": {
             "total": len(connections),
@@ -846,6 +957,69 @@ def create_connection(
     return result
 
 
+@router.post("/api/integrations/connections/{connection_id}/validate")
+def validate_connection(
+    connection_id: str, request: Request, user: UserRow = Depends(require_role("admin"))
+):
+    org = organization(request, user)
+    result = get_operations().connection_action(
+        organization_id=org.id, connection_id=connection_id, action="VALIDATE"
+    )
+    audit(
+        request, "integration.connection_validated", "integration_connection", connection_id, user
+    )
+    return result
+
+
+@router.post("/api/integrations/connections/{connection_id}/test")
+def test_connection(
+    connection_id: str, request: Request, user: UserRow = Depends(require_role("admin"))
+):
+    org = organization(request, user)
+    result = get_operations().connection_action(
+        organization_id=org.id, connection_id=connection_id, action="TEST"
+    )
+    audit(request, "integration.connection_tested", "integration_connection", connection_id, user)
+    return result
+
+
+@router.post("/api/integrations/connections/{connection_id}/{action}")
+def connection_lifecycle(
+    connection_id: str,
+    action: str,
+    request: Request,
+    payload: ConnectionCredentialPayload | None = None,
+    user: UserRow = Depends(require_role("admin")),
+):
+    if action not in {"enable", "disable", "rotate"}:
+        raise GateGuardError(
+            "Unsupported connection action.", code="VALIDATION_ERROR", status_code=422
+        )
+    org = organization(request, user)
+    result = get_operations().connection_action(
+        organization_id=org.id,
+        connection_id=connection_id,
+        action=action.upper(),
+        credential_reference=payload.credential_reference if payload else None,
+    )
+    audit(
+        request, f"integration.connection_{action}d", "integration_connection", connection_id, user
+    )
+    return result
+
+
+@router.delete("/api/integrations/connections/{connection_id}")
+def delete_connection(
+    connection_id: str, request: Request, user: UserRow = Depends(require_role("admin"))
+):
+    org = organization(request, user)
+    result = get_operations().connection_action(
+        organization_id=org.id, connection_id=connection_id, action="DELETE"
+    )
+    audit(request, "integration.connection_deleted", "integration_connection", connection_id, user)
+    return result
+
+
 @router.get("/api/integrations/webhooks")
 def webhooks(request: Request, user: UserRow = Depends(require_role("admin", "supervisor"))):
     org = organization(request, user)
@@ -862,6 +1036,70 @@ def create_webhook(
     return result
 
 
+@router.post("/api/integrations/webhooks/{subscription_id}/test", status_code=202)
+def queue_webhook_test(
+    subscription_id: str,
+    payload: WebhookTestPayload,
+    request: Request,
+    user: UserRow = Depends(require_role("admin")),
+):
+    org = organization(request, user)
+    result = get_operations().queue_webhook_delivery(
+        organization_id=org.id,
+        subscription_id=subscription_id,
+        event_type=payload.event_type,
+        payload={"test": True, **payload.payload},
+        allow_unlisted_test=True,
+    )
+    audit(request, "integration.webhook_delivery_queued", "webhook", subscription_id, user)
+    return result
+
+
+@router.get("/api/integrations/webhooks/{subscription_id}/deliveries")
+def webhook_deliveries(
+    subscription_id: str,
+    request: Request,
+    user: UserRow = Depends(require_role("admin", "supervisor")),
+):
+    org = organization(request, user)
+    return {
+        "items": get_operations().list_webhook_deliveries(
+            organization_id=org.id, subscription_id=subscription_id
+        )
+    }
+
+
+@router.post("/api/integrations/webhooks/{subscription_id}/{action}")
+def webhook_lifecycle(
+    subscription_id: str,
+    action: str,
+    request: Request,
+    user: UserRow = Depends(require_role("admin")),
+):
+    if action not in {"enable", "disable", "rotate", "delete"}:
+        raise GateGuardError(
+            "Unsupported webhook action.", code="VALIDATION_ERROR", status_code=422
+        )
+    org = organization(request, user)
+    result = get_operations().webhook_action(
+        organization_id=org.id, subscription_id=subscription_id, action=action.upper()
+    )
+    audit(request, f"integration.webhook_{action}d", "webhook", subscription_id, user)
+    return result
+
+
+@router.post("/api/integrations/webhooks/deliveries/{delivery_id}/retry", status_code=202)
+def retry_webhook_delivery(
+    delivery_id: str, request: Request, user: UserRow = Depends(require_role("admin"))
+):
+    org = organization(request, user)
+    result = get_operations().retry_webhook_delivery(
+        organization_id=org.id, delivery_id=delivery_id
+    )
+    audit(request, "integration.webhook_delivery_retried", "webhook_delivery", delivery_id, user)
+    return result
+
+
 @router.get("/api/integrations/jobs")
 def jobs(
     request: Request,
@@ -870,6 +1108,18 @@ def jobs(
 ):
     org = organization(request, user)
     return {"items": get_operations().list_jobs(organization_id=org.id, status=status)}
+
+
+@router.post("/api/integrations/jobs/{job_id}/retry", status_code=202)
+def retry_job(
+    job_id: str,
+    request: Request,
+    user: UserRow = Depends(require_role("admin", "supervisor")),
+):
+    org = organization(request, user)
+    result = get_operations().retry_job(organization_id=org.id, job_id=job_id)
+    audit(request, "integration.job_retried", "processing_job", job_id, user)
+    return result
 
 
 @router.get("/api/settings/workspace")
@@ -905,6 +1155,39 @@ def save_workspace_settings(
     return result
 
 
+@router.post("/api/settings/retention/dry-run")
+def retention_dry_run(request: Request, user: UserRow = Depends(require_role("admin"))):
+    org = organization(request, user)
+    return get_operations().retention_dry_run(organization_id=org.id)
+
+
+@router.post("/api/settings/retention/cleanup")
+def retention_cleanup(request: Request, user: UserRow = Depends(require_role("admin"))):
+    org = organization(request, user)
+    result = get_operations().cleanup_retention(organization_id=org.id)
+    audit(request, "retention.cleanup", "organization", org.id, user, result.get("deleted", {}))
+    return result
+
+
+@router.post("/api/settings/retention/legal-holds/{shipment_id}")
+def set_retention_legal_hold(
+    shipment_id: str,
+    payload: RetentionLegalHoldPayload,
+    request: Request,
+    user: UserRow = Depends(require_role("supervisor", "admin")),
+):
+    org = organization(request, user)
+    result = get_operations().set_legal_hold(
+        organization_id=org.id,
+        shipment_id=shipment_id,
+        user=user,
+        active=payload.active,
+        reason=payload.reason,
+    )
+    audit(request, "retention.legal_hold_updated", "shipment", shipment_id, user)
+    return result
+
+
 @router.get("/api/rule-packs")
 def rule_packs(request: Request, user: UserRow = Depends(current_user)):
     org = organization(request, user)
@@ -931,10 +1214,9 @@ def rule_packs(request: Request, user: UserRow = Depends(current_user)):
             "items": [
                 {
                     **{
-                        column.name: getattr(pack, column.name)
-                        for column in pack.__table__.columns
+                        column.name: getattr(pack, column.name) for column in pack.__table__.columns
                     },
-                    "source": "WORKSPACE" if pack.organization_id else "SHARED_BASELINE",
+                    "source": "WORKSPACE" if pack.organization_id else "SHARED_POLICY",
                     "published_by_display_name": user_row.display_name if user_row else None,
                 }
                 for pack, user_row in rows
@@ -1048,6 +1330,45 @@ def create_service_account(
     return result
 
 
+@router.get("/api/integrations/service-accounts")
+def service_accounts(request: Request, user: UserRow = Depends(require_role("admin"))):
+    org = organization(request, user)
+    return {"items": get_operations().list_service_accounts(organization_id=org.id)}
+
+
+@router.post("/api/integrations/service-accounts/{service_account_id}/revoke")
+def revoke_service_account(
+    service_account_id: str, request: Request, user: UserRow = Depends(require_role("admin"))
+):
+    org = organization(request, user)
+    result = get_operations().revoke_service_account(
+        organization_id=org.id, service_account_id=service_account_id
+    )
+    audit(
+        request, "integration.service_account_revoked", "service_account", service_account_id, user
+    )
+    return result
+
+
+@router.post("/api/integrations/service-accounts/{service_account_id}/rotate", status_code=201)
+def rotate_service_account(
+    service_account_id: str,
+    request: Request,
+    payload: ServiceAccountPayload | None = None,
+    user: UserRow = Depends(require_role("admin")),
+):
+    org = organization(request, user)
+    result = get_operations().rotate_service_token(
+        organization_id=org.id,
+        service_account_id=service_account_id,
+        expires_at=payload.expires_at if payload else None,
+    )
+    audit(
+        request, "integration.service_account_rotated", "service_account", service_account_id, user
+    )
+    return result
+
+
 @router.post("/api/v1/shipments", status_code=201)
 def inbound_shipment(
     payload: dict[str, Any],
@@ -1073,34 +1394,67 @@ def inbound_shipment(
     raw_token = authorization[7:].strip()
     principal = get_operations().service_token_context(raw_token)
     principal.requires_scope("shipment.write")
+    enforce_service_rate_limit(principal)
     org_id = principal.organization_id
+    reservation = ApiIdempotencyRow(
+        id=str(uuid.uuid4()),
+        organization_id=org_id,
+        service_account_id=principal.service_account_id,
+        idempotency_key=idempotency_key,
+        status="PROCESSING",
+        response_json=None,
+        created_at=datetime.now(UTC),
+    )
     with get_operations().session_factory() as session:
-        existing = list(
-            session.scalars(
-                select(DomainEventRow)
-                .where(
-                    DomainEventRow.organization_id == org_id,
-                    DomainEventRow.event_type == "api.shipment.accepted",
-                )
-                .order_by(DomainEventRow.created_at.desc())
-                .limit(1000)
+        existing = session.scalar(
+            select(ApiIdempotencyRow).where(
+                ApiIdempotencyRow.organization_id == org_id,
+                ApiIdempotencyRow.service_account_id == principal.service_account_id,
+                ApiIdempotencyRow.idempotency_key == idempotency_key,
             )
         )
-        for event in existing:
-            if json.loads(event.payload_json).get("idempotency_key") == idempotency_key:
-                shipment_id = event.entity_id
-                from app.repositories.reconciliations import ReconciliationRepository
-
-                return ReconciliationRepository(get_settings().database_url).get_shipment(
-                    shipment_id, organization_id=org_id
+        if existing is not None:
+            if existing.status == "SUCCEEDED" and existing.response_json:
+                return json.loads(existing.response_json)
+            raise GateGuardError(
+                "An earlier request with this Idempotency-Key is still processing.",
+                code="IDEMPOTENCY_IN_PROGRESS",
+                status_code=409,
+            )
+        session.add(reservation)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            existing = session.scalar(
+                select(ApiIdempotencyRow).where(
+                    ApiIdempotencyRow.organization_id == org_id,
+                    ApiIdempotencyRow.service_account_id == principal.service_account_id,
+                    ApiIdempotencyRow.idempotency_key == idempotency_key,
                 )
+            )
+            if existing and existing.status == "SUCCEEDED" and existing.response_json:
+                return json.loads(existing.response_json)
+            raise GateGuardError(
+                "An earlier request with this Idempotency-Key is still processing.",
+                code="IDEMPOTENCY_IN_PROGRESS",
+                status_code=409,
+            ) from None
     from app.repositories.reconciliations import ReconciliationRepository
 
-    shipment = ReconciliationRepository(get_settings().database_url).create_shipment(
-        organization_id=org_id,
-        payload=payload,
-        actor=principal,
-    )
+    try:
+        shipment = ReconciliationRepository(get_settings().database_url).create_shipment(
+            organization_id=org_id,
+            payload=payload,
+            actor=principal,
+        )
+    except Exception:
+        with get_operations().session_factory() as session:
+            row = session.get(ApiIdempotencyRow, reservation.id)
+            if row:
+                row.status = "FAILED"
+                session.commit()
+        raise
     with get_operations().session_factory() as session:
         session.add(
             DomainEventRow(
@@ -1109,10 +1463,15 @@ def inbound_shipment(
                 event_type="api.shipment.accepted",
                 entity_type="shipment",
                 entity_id=shipment["id"],
+                idempotency_key=idempotency_key,
                 payload_json=json.dumps({"idempotency_key": idempotency_key}),
                 created_at=datetime.now(UTC),
             )
         )
+        row = session.get(ApiIdempotencyRow, reservation.id)
+        if row:
+            row.status = "SUCCEEDED"
+            row.response_json = json.dumps(shipment, default=str)
         session.commit()
     from app.api.routes import get_repository
 

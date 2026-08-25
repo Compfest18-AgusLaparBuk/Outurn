@@ -30,6 +30,7 @@ Mulai dari `.env.production.example` dan ganti seluruh placeholder. Production m
 
 - `APP_PUBLIC_ORIGIN`
 - `APP_API_KEY`
+- `WEBHOOK_SECRET_KEY`
 - `SESSION_TTL_SECONDS`
 - `COOKIE_SECURE=true`
 - `POSTGRES_PASSWORD`
@@ -140,5 +141,6 @@ Backup yang belum pernah dipulihkan di test environment tidak boleh dianggap seb
 
 - `/healthz` mengonfirmasi proses API hidup.
 - `/readyz` mengonfirmasi service dapat menggunakan repository atau schema yang dikonfigurasi.
+- Pada origin frontend, `/healthz`, `/readyz`, dan `/api/health/ready` diproxy ke FastAPI agar ingress dan Azure dapat memeriksa service yang sama.
 
 Gunakan readiness, bukan liveness, untuk menentukan apakah sebuah replica dapat menerima traffic.
