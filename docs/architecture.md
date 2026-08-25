@@ -29,7 +29,7 @@ Browser tidak tepercaya. Browser tidak pernah menerima backend service credentia
 
 ### BFF ke API
 
-BFF adalah application client resmi untuk backend. BFF meneruskan session cookie HttpOnly sambil menjaga service API key tetap di server. Service API key melindungi backend dari panggilan langsung tanpa autentikasi; credential ini bukan pengganti user authentication atau RBAC.
+BFF adalah application client resmi untuk backend. BFF menjaga service API key tetap di server. Service API key melindungi backend dari panggilan langsung; aplikasi tidak memakai login pengguna dan seluruh request berbagi principal operator internal.
 
 ### Dokumen ke Ekstraksi
 
@@ -41,7 +41,7 @@ Output provider adalah evidence tidak tepercaya. Nilai penting mencakup provenan
 
 ### Jalur Override
 
-Supervisor override memerlukan session supervisor atau admin dan merekam user ID terautentikasi, snapshot display name, alasan, status sebelumnya, status akhir, serta timestamp. Request tidak dapat memasok actor arbitrer atau shared supervisor credential.
+Supervisor override merekam principal operator internal, snapshot display name, alasan, status sebelumnya, status akhir, serta timestamp. Request tidak dapat memasok actor arbitrer atau shared supervisor credential.
 
 ## Semantik Keputusan
 

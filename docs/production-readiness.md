@@ -41,7 +41,7 @@ Build frontend harus menyelesaikan semua route App Router. Apabila sebuah route 
 
 ## 3. Verifikasi UI dan alur pengguna
 
-Pengujian browser minimum mencakup login, pemilih bahasa, perubahan password pertama, collapsed sidebar, dashboard, create shipment, upload tiga dokumen, hasil reconciliation, override supervisor, detail shipment, work queue, settings, integrations, serta sign out. Review harus dilakukan pada viewport desktop dan mobile.
+Pengujian browser minimum mencakup pemilih bahasa, dashboard, create shipment, upload tiga dokumen, hasil reconciliation, override supervisor, detail shipment, work queue, settings, dan integrations. Review harus dilakukan pada viewport desktop dan mobile.
 
 > Field file boleh memakai elemen `input[type=file]` yang disembunyikan secara aksesibel, karena browser memerlukan primitive tersebut untuk membuka file picker. Seluruh surface yang terlihat—label, trigger, nama file, error, dan status—harus tetap memakai sistem visual Outurn/Kumo.
 
@@ -49,7 +49,7 @@ Tidak boleh ada label teknis seperti enum backend, endpoint internal, nama actio
 
 ## 4. Keamanan, privasi, dan data evidence
 
-Outurn memakai server-side session cookie, API key antara frontend BFF dan backend, header keamanan, same-origin check pada mutation, rate limit proses tunggal, serta batas ukuran/halaman/pixel untuk upload. Dokumen pelanggan dan token service account tidak boleh dimasukkan ke screenshot, fixture publik, console log, atau repository.
+Outurn memakai API key antara frontend BFF dan backend, header keamanan, same-origin check pada mutation, rate limit proses tunggal, serta batas ukuran/halaman/pixel untuk upload. Dokumen pelanggan dan token service account tidak boleh dimasukkan ke screenshot, fixture publik, console log, atau repository.
 
 Token service account dan Webhook signing secret harus diperlakukan sebagai **one-time reveal**. UI hanya menampilkan token pada respons pembuatan, menyediakan aksi salin eksplisit, dan tidak menyimpan nilai tersebut pada local storage, query parameter, atau log browser.
 
@@ -57,7 +57,7 @@ AI/OCR dapat membantu ekstraksi namun bukan sumber kebenaran tanpa evidence. Pro
 
 ## 5. Metadata dan pengindeksan
 
-Outurn adalah workspace terautentikasi, bukan situs pemasaran publik. Semua route aplikasi menggunakan metadata produk yang konsisten, tetapi memiliki `noindex, nofollow` dan `robots.txt` yang melarang crawl. Ini mencegah login, console, identifier pengiriman, dan route operasi muncul pada hasil pencarian.
+Outurn adalah workspace operasional internal, bukan situs pemasaran publik. Semua route aplikasi menggunakan metadata produk yang konsisten, tetapi memiliki `noindex, nofollow` dan `robots.txt` yang melarang crawl. Ini mencegah console, identifier pengiriman, dan route operasi muncul pada hasil pencarian.
 
 Jika organisasi kelak membuat situs pemasaran publik, situs tersebut harus berada pada origin dan deployment terpisah. Hanya situs pemasaran yang memerlukan sitemap, canonical marketing URL, structured data, dan indexing publik.
 
@@ -68,7 +68,7 @@ Sebelum traffic pengguna diarahkan ke rilis baru, pastikan domain HTTPS, `APP_PU
 Setelah merge ke `main`, GitHub Actions menyelesaikan quality gate tanpa mempublikasikan image atau memegang secret aplikasi. VM Azure yang sudah dibootstrap menarik SHA terbaru dari `origin/main` melalui `outurn-deploy.timer`, menjalankan Compose build, migration, health check, dan hanya menyimpan SHA yang sukses. Verifikasi endpoint berikut setelah deployment selesai:
 
 ```bash
-curl -fsS https://<domain>/login >/dev/null
+curl -fsS https://<domain>/ >/dev/null
 curl -fsS https://<domain>/robots.txt
 sudo systemctl status outurn-deploy.timer
 sudo journalctl -u outurn-deploy.service -n 100 --no-pager

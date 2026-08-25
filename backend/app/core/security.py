@@ -10,9 +10,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import Request
 from starlette.responses import JSONResponse, Response
 
-from app.auth.service import SESSION_COOKIE, user_from_token
 from app.core.config import Settings
-from app.repositories.reconciliations import ReconciliationRepository
 
 
 class RateLimiter:
@@ -52,9 +50,6 @@ def _error(status_code: int, code: str, message: str, request_id: str) -> JSONRe
 
 def install_security_middleware(app, settings: Settings) -> None:
     limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_window_seconds)
-    repository = ReconciliationRepository(
-        settings.database_url, auto_create_schema=settings.app_env.casefold() != "production"
-    )
 
     @app.middleware("http")
     async def security_middleware(
@@ -68,7 +63,7 @@ def install_security_middleware(app, settings: Settings) -> None:
             else secrets.token_hex(12)
         )
         request.state.request_id = request_id
-        request.state.user = user_from_token(repository, request.cookies.get(SESSION_COOKIE))
+        request.state.user = None
 
         def secure(response: Response) -> Response:
             response.headers["X-Request-ID"] = request_id

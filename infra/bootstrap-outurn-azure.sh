@@ -81,8 +81,6 @@ store_secret() {
 }
 
 store_secret openrouter-api-key "OpenRouter API key (hidden)"
-store_secret seed-user-1-password "Outurn admin password (hidden)"
-store_secret seed-user-2-password "Outurn operator password (hidden)"
 
 for secret_name in app-api-key webhook-secret-key postgres-password; do
   secret_value="$(openssl rand -hex 32)"
@@ -179,14 +177,6 @@ get_secret() { az keyvault secret show --vault-name ${KEY_VAULT} --name "\$1" --
   printf '%s\\n' 'OPENROUTER_BASE_URL=https://openrouter.ai/api/v1'
   printf '%s\\n' 'OPENROUTER_MODEL=openai/gpt-4o-mini'
   printf 'OPENROUTER_API_KEY=%s\\n' "\$(get_secret openrouter-api-key)"
-  printf '%s\\n' 'SEED_USER_1_EMAIL=admin@outurn.local'
-  printf '%s\\n' 'SEED_USER_1_DISPLAY_NAME=Outurn Admin'
-  printf '%s\\n' 'SEED_USER_1_ROLE=admin'
-  printf 'SEED_USER_1_PASSWORD=%s\\n' "\$(get_secret seed-user-1-password)"
-  printf '%s\\n' 'SEED_USER_2_EMAIL=operator@outurn.local'
-  printf '%s\\n' 'SEED_USER_2_DISPLAY_NAME=Outurn Operator'
-  printf '%s\\n' 'SEED_USER_2_ROLE=operator'
-  printf 'SEED_USER_2_PASSWORD=%s\\n' "\$(get_secret seed-user-2-password)"
 } >/opt/outurn/.env
 chmod 600 /opt/outurn/.env
 cat >/etc/caddy/Caddyfile <<CADDY

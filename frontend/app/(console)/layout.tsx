@@ -1,6 +1,6 @@
-import { AuthGate } from "@/components/auth-gate";
-import { AppShell } from "@/components/app-shell/app-shell";
+import { redirect } from "next/navigation";
 
 export default function ConsoleLayout({ children }: { children: React.ReactNode }) {
-  return <AuthGate><AppShell>{children}</AppShell></AuthGate>;
+  void children;
+  redirect("/");
 }

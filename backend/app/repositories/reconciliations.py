@@ -17,7 +17,6 @@ from sqlalchemy import (
     func,
     or_,
     select,
-    update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -283,10 +282,6 @@ def user_dict(user: UserRow) -> dict[str, Any]:
     }
 
 
-def as_utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
 def _shipment_id(result: ReconciliationResult) -> str | None:
     document = result.documents.get("delivery_order")
     value = document.shipment_id.value if document else None
@@ -392,24 +387,6 @@ class ReconciliationRepository:
         with self.session_factory() as session:
             return session.scalar(select(UserRow).where(UserRow.email == email.strip().casefold()))
 
-    def change_password(self, user_id: str, password_hash: str) -> UserRow:
-        now = datetime.now(UTC)
-        with self.session_factory() as session:
-            user = session.get(UserRow, user_id)
-            if user is None:
-                raise NotFoundError("User was not found.")
-            user.password_hash = password_hash
-            user.must_change_password = False
-            user.updated_at = now
-            session.execute(
-                update(SessionRow)
-                .where(SessionRow.user_id == user_id, SessionRow.revoked_at.is_(None))
-                .values(revoked_at=now)
-            )
-            session.commit()
-            session.refresh(user)
-            return user
-
     def get_user(self, user_id: str) -> UserRow | None:
         with self.session_factory() as session:
             return session.get(UserRow, user_id)
@@ -460,13 +437,6 @@ class ReconciliationRepository:
             session.commit()
             session.refresh(user)
             return user
-
-    def mark_login(self, user_id: str) -> None:
-        with self.session_factory() as session:
-            user = session.get(UserRow, user_id)
-            if user:
-                user.last_login_at = user.updated_at = datetime.now(UTC)
-                session.commit()
 
     @staticmethod
     def _shipment_dict(session: Session, row: ShipmentCaseRow) -> dict[str, Any]:
@@ -1189,42 +1159,6 @@ class ReconciliationRepository:
                 )
             session.commit()
             return self._shipment_dict(session, shipment), now
-
-    def create_session(self, *, token_hash: str, user_id: str, expires_at: datetime) -> None:
-        now = datetime.now(UTC)
-        with self.session_factory() as session:
-            session.add(
-                SessionRow(
-                    token_hash=token_hash,
-                    user_id=user_id,
-                    created_at=now,
-                    expires_at=expires_at,
-                    last_seen_at=now,
-                )
-            )
-            session.commit()
-
-    def get_session_user(self, token_hash: str) -> UserRow | None:
-        now = datetime.now(UTC)
-        with self.session_factory() as session:
-            row = session.scalar(select(SessionRow).where(SessionRow.token_hash == token_hash))
-            if row is None or row.revoked_at is not None or as_utc(row.expires_at) <= now:
-                return None
-            user = session.get(UserRow, row.user_id)
-            if user is None or not user.active:
-                return None
-            row.last_seen_at = now
-            session.commit()
-            return user
-
-    def revoke_session(self, token_hash: str) -> UserRow | None:
-        with self.session_factory() as session:
-            row = session.scalar(select(SessionRow).where(SessionRow.token_hash == token_hash))
-            user = session.get(UserRow, row.user_id) if row else None
-            if row and row.revoked_at is None:
-                row.revoked_at = datetime.now(UTC)
-                session.commit()
-            return user
 
     def list_users(self, *, organization_id: str) -> list[UserRow]:
         from app.repositories.operations import WorkspaceMembershipRow

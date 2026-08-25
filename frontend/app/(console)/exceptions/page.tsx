@@ -26,7 +26,6 @@ import { AppSelect } from "@/components/ui/select";
 import { AppTextarea } from "@/components/ui/textarea";
 import {
   addExceptionComment,
-  fetchMe,
   fetchOperationsList,
   updateException,
 } from "@/lib/api";
@@ -42,7 +41,6 @@ export default function ExceptionsPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const client = useQueryClient();
-  const currentUser = useQuery({ queryKey: ["auth", "me"], queryFn: fetchMe });
   const result = useQuery({
     queryKey: ["exceptions", status, mine],
     queryFn: () =>
@@ -57,14 +55,10 @@ export default function ExceptionsPage() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["exceptions"] }),
   });
   const assign = useMutation({
-    mutationFn: (id: string) => {
-      if (!currentUser.data?.id)
-        throw new Error("Sesi pengguna belum tersedia.");
-      return updateException(id, {
-        assigned_to: currentUser.data.id,
+    mutationFn: (id: string) =>
+      updateException(id, {
         status: "IN_PROGRESS",
-      });
-    },
+      }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["exceptions"] }),
   });
   const commentMutation = useMutation({

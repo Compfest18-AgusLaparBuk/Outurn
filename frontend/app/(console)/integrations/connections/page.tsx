@@ -29,10 +29,8 @@ import {
   connectionAction,
   createConnection,
   createServiceAccount,
-  fetchMe,
   fetchOperationsList,
   fetchServiceAccounts,
-  fetchWorkspaceContext,
   revokeServiceAccount,
   rotateServiceAccount,
 } from "@/lib/api";
@@ -76,13 +74,7 @@ function health(connection: Connection) {
 
 export default function ConnectionsPage() {
   const client = useQueryClient();
-  const session = useQuery({ queryKey: ["auth", "me"], queryFn: fetchMe });
-  const context = useQuery({
-    queryKey: ["workspace-context"],
-    queryFn: fetchWorkspaceContext,
-    enabled: Boolean(session.data),
-  });
-  const canManageConnections = context.data?.role === "admin";
+  const canManageConnections = true;
   const result = useQuery({
     queryKey: ["connections"],
     queryFn: () => fetchOperationsList("/integrations/connections"),
@@ -162,7 +154,7 @@ export default function ConnectionsPage() {
         title="Koneksi"
         description="Sistem bisnis dan layanan partner yang dikonfigurasi pada ruang kerja aktif. Kredensial tidak pernah tampil di daftar ini."
       />
-      {!session.isPending && !canManageConnections ? (
+      {!canManageConnections ? (
         <StateNotice
           title="Koneksi hanya tersedia untuk administrator."
           tone="warning"

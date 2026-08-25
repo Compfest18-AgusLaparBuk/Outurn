@@ -5,28 +5,20 @@ from datetime import UTC, datetime, time, timedelta
 from functools import lru_cache
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 
 from app.auth.dependencies import current_user, require_role
-from app.auth.service import (
-    SESSION_COOKIE,
-    authenticate,
-    create_session,
-    require_password,
-    session_hash,
-)
+from app.auth.passwords import require_password
 from app.core.config import get_settings
 from app.core.errors import OuturnError
 from app.domain.models import (
     AuditEventResponse,
     DashboardSummary,
     DocumentType,
-    LoginRequest,
     OverrideRequest,
     PaginatedReconciliations,
     PaginatedShipments,
     PaginatedWorkQueue,
-    PasswordChangeRequest,
     ReconciliationResult,
     ReconciliationStatus,
     ReleaseDecisionRequest,
@@ -136,93 +128,6 @@ def readiness_summary() -> dict[str, str]:
     return {"application": "healthy", "database": database}
 
 
-@router.post("/api/auth/login", response_model=UserResponse)
-def login(body: LoginRequest, request: Request, response: Response):
-    user = authenticate(get_repository(), body.email, body.password)
-    if user is None:
-        attempted_user = get_repository().get_user_by_email(body.email.strip().casefold())
-        if attempted_user is not None:
-            try:
-                workspace = get_workspace(request, attempted_user)
-                get_repository().record_audit(
-                    "auth.login.failure",
-                    "user",
-                    entity_id=attempted_user.id,
-                    actor=attempted_user,
-                    organization_id=workspace.id,
-                    metadata={"email": body.email.strip().casefold()},
-                    request_id=request.state.request_id,
-                )
-            except OuturnError:
-                # Legacy users without a workspace cannot produce a tenant-scoped audit event.
-                pass
-        raise OuturnError(
-            "Email or password is incorrect.", code="INVALID_CREDENTIALS", status_code=401
-        )
-    token = create_session(get_repository(), user.id, get_settings())
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        httponly=True,
-        secure=get_settings().secure_cookies,
-        samesite="lax",
-        max_age=get_settings().session_ttl_seconds,
-        path="/",
-    )
-    get_repository().record_audit(
-        "auth.login.success",
-        "user",
-        entity_id=user.id,
-        actor=user,
-        organization_id=get_workspace(request, user).id,
-        request_id=request.state.request_id,
-    )
-    return user_response(user)
-
-
-@router.post("/api/auth/logout")
-def logout(request: Request, response: Response):
-    token = request.cookies.get(SESSION_COOKIE)
-    user = get_repository().revoke_session(session_hash(token)) if token else None
-    if user:
-        try:
-            workspace = get_workspace(request, user)
-            get_repository().record_audit(
-                "auth.logout",
-                "user",
-                entity_id=user.id,
-                actor=user,
-                organization_id=workspace.id,
-                request_id=request.state.request_id,
-            )
-        except OuturnError:
-            # Session revocation must still succeed for a legacy user with no active workspace.
-            pass
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    return {"status": "ok"}
-
-
-@router.get("/api/auth/me", response_model=UserResponse)
-def me(user: UserRow = Depends(current_user)):
-    return user_response(user)
-
-
-@router.post("/api/auth/password", response_model=UserResponse)
-def change_password(
-    body: PasswordChangeRequest,
-    user: UserRow = Depends(current_user),
-):
-    from app.auth.passwords import verify_password
-
-    if not verify_password(user.password_hash, body.current_password):
-        raise OuturnError(
-            "Current password is incorrect.", code="INVALID_CREDENTIALS", status_code=401
-        )
-    return user_response(
-        get_repository().change_password(user.id, require_password(body.new_password))
-    )
-
-
 @router.post("/api/reconcile", response_model=ReconciliationResult)
 async def reconcile_documents(
     request: Request,
@@ -249,7 +154,7 @@ async def reconcile_documents(
         ),
     }
     ensure_distinct_uploads(safe)
-    workspace = get_workspace(request, user)
+    workspace_id = get_workspace(request, user).id
     context = ShipmentAssuranceContext(
         reference=(shipment_reference or "UNSPECIFIED").strip(),
         origin=origin,
@@ -258,14 +163,14 @@ async def reconcile_documents(
         shipping_mode=shipping_mode,
     )
     result = await get_service().reconcile_uploads(
-        safe, organization_id=workspace.id, context=context
+        safe, organization_id=workspace_id, context=context
     )
     get_repository().record_audit(
         "reconciliation.created",
         "reconciliation",
         entity_id=result.session_id,
         actor=user,
-        organization_id=workspace.id,
+        organization_id=workspace_id,
         metadata={"status": result.status.value, "processing_ms": result.processing_ms},
         request_id=request.state.request_id,
     )
@@ -278,7 +183,7 @@ async def reconcile_documents(
     from app.api.operations import get_operations
 
     get_operations().record_reconciliation_check(
-        organization_id=workspace.id,
+        organization_id=workspace_id,
         shipment_id=shipment_id,
         user=user,
         result=result,

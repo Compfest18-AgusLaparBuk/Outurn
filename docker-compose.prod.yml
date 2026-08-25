@@ -45,7 +45,6 @@ services:
       COOKIE_SECURE: "true"
       DATABASE_URL: postgresql+psycopg://outurn:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/outurn
       CORS_ORIGINS: ${APP_PUBLIC_ORIGIN:?APP_PUBLIC_ORIGIN is required}
-    command: ["python", "-m", "scripts.seed_users"]
     depends_on:
       migrate:
         condition: service_completed_successfully

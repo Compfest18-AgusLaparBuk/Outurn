@@ -37,7 +37,7 @@ Mulai dari `.env.production.example` dan ganti seluruh placeholder. Production m
 - `EXTRACTION_PROVIDER=openrouter` untuk jalur extraction MVP;
 - `OPENROUTER_API_KEY` diisi dengan key OpenRouter dan `OPENROUTER_MODEL=stealth/ox-alpha`.
 
-`APP_API_KEY` adalah credential server-to-server yang hanya digunakan oleh Next.js BFF. Autentikasi manusia memakai user database dan opaque session cookie; tidak ada shared supervisor credential.
+`APP_API_KEY` adalah credential server-to-server yang hanya digunakan oleh Next.js BFF. Aplikasi tidak memakai login pengguna; seluruh request berbagi principal operator internal.
 
 Provider key harus tetap berada di server. Jangan pernah mengeksposnya melalui `NEXT_PUBLIC_*`, browser, log, fixture, Docker image, atau GitHub Actions.
 
@@ -49,7 +49,7 @@ cp .env.production.example .env
 docker compose -f docker-compose.prod.yml up --build
 ```
 
-Compose menjalankan PostgreSQL, migration one-shot, seed user, FastAPI, dan Next.js. Pemrosesan shipment tetap synchronous pada request; tidak ada worker, queue, scheduler, atau polling service. Container menggunakan non-root user, capability yang dibatasi, named volume untuk dokumen, serta health check untuk PostgreSQL dan FastAPI.
+Compose menjalankan PostgreSQL, migration one-shot, FastAPI, dan Next.js. Pemrosesan shipment tetap synchronous pada request; tidak ada worker, queue, scheduler, atau polling service. Container menggunakan non-root user, capability yang dibatasi, named volume untuk dokumen, serta health check untuk PostgreSQL dan FastAPI.
 
 ## Bootstrap Azure
 
@@ -59,7 +59,7 @@ Bootstrap resmi berada di `infra/bootstrap-outurn-azure.sh`. Jalankan dari Azure
 curl -fsSL https://raw.githubusercontent.com/Compfest18-AgusLaparBuk/Outurn/main/infra/bootstrap-outurn-azure.sh | bash
 ```
 
-Script tersebut membuat resource group, provider registration, Key Vault RBAC, Ubuntu VM, managed identity, network rule minimum, Caddy, systemd timer, dan secret runtime. Script meminta OpenRouter key serta password bootstrap melalui prompt tersembunyi; nilainya tidak ditulis ke repository.
+Script tersebut membuat resource group, provider registration, Key Vault RBAC, Ubuntu VM, managed identity, network rule minimum, Caddy, systemd timer, dan secret runtime. Script meminta OpenRouter key melalui prompt tersembunyi; nilainya tidak ditulis ke repository.
 
 Bootstrap memakai Key Vault sebagai source of truth. VM mengambil secret dengan managed identity, menulis `.env` runtime dengan permission ketat, lalu menjalankan deployment pertama. Jika Cloud Shell terputus, periksa resource group terlebih dahulu sebelum mengulang bootstrap agar tidak membuat resource duplikat.
 
@@ -74,7 +74,7 @@ fetch origin/main
   → checkout SHA target
   → docker compose up -d --build
   → tunggu PostgreSQL dan FastAPI healthy
-  → cek /login
+  → cek /
   → simpan SHA terakhir yang sukses
 ```
 
@@ -100,7 +100,7 @@ Versi dependency tingkat atas dibatasi pada `backend/pyproject.toml` dan `fronte
 
 Review perubahan lockfile sebelum commit. Jangan mengandalkan dependency global yang tidak dipin.
 
-## Ingress dan Authentication
+## Ingress dan Akses
 
 Sebelum mengarahkan traffic pengguna:
 
@@ -108,8 +108,6 @@ Sebelum mengarahkan traffic pengguna:
 - arahkan traffic publik hanya ke Caddy/Next.js;
 - simpan FastAPI pada jaringan internal Compose;
 - jalankan migration sebelum API menerima traffic;
-- bootstrap admin dengan `backend/scripts/create_admin.py` atau seed secret dari Key Vault;
-- enforce supervisor override melalui backend RBAC;
 - tetapkan body limit pada ingress dan aplikasi;
 - gunakan rate limiter bersama bila deployment berubah menjadi multi-instance.
 
@@ -126,6 +124,6 @@ Dokumen upload berada pada named volume dan harus tercakup oleh retensi serta ba
 - `/healthz` mengonfirmasi proses API hidup.
 - `/readyz` mengonfirmasi service dapat memakai repository/schema yang dikonfigurasi.
 - `/api/health/ready` pada frontend memeriksa readiness backend melalui BFF.
-- `/login` dipakai deployment timer sebagai smoke check route frontend.
+- `/` dipakai deployment timer sebagai smoke check route frontend.
 
 Gunakan readiness, bukan liveness, untuk menentukan apakah service dapat menerima traffic.

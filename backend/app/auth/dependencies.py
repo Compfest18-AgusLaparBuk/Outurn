@@ -1,42 +1,33 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from functools import lru_cache
 
-from fastapi import Depends, Request
-
-from app.core.errors import OuturnError
 from app.repositories.reconciliations import UserRow
 
-
-def current_user(request: Request) -> UserRow:
-    user = getattr(request.state, "user", None)
-    if user is None:
-        raise OuturnError("Authentication is required.", code="UNAUTHENTICATED", status_code=401)
-    return user
+SYSTEM_USER_EMAIL = "operator@outurn.local"
 
 
-def current_workspace_role(request: Request, user: UserRow) -> str:
-    """Resolve authorization from the authenticated user's active workspace membership."""
+@lru_cache(maxsize=1)
+def system_user() -> UserRow:
+    """Provision and return the shared operator principal (authentication is disabled)."""
     from app.api.operations import get_operations
 
-    operations = get_operations()
-    workspace = operations.organization_for(user, request.headers.get("x-outurn-organization"))
-    return operations.membership_role_for(organization_id=workspace.id, user_id=user.id)
+    return get_operations().ensure_system_user(SYSTEM_USER_EMAIL)
 
 
-def require_role(*roles: str) -> Callable:
-    allowed = frozenset(roles)
+def current_user() -> UserRow:
+    """Every request shares the workspace operator; no login is required."""
+    return system_user()
 
-    def dependency(request: Request, user: UserRow = Depends(current_user)) -> UserRow:
-        if current_workspace_role(request, user) not in allowed:
-            raise OuturnError(
-                "You do not have permission for this operation.", code="FORBIDDEN", status_code=403
-            )
-        return user
+
+def optional_current_user() -> UserRow:
+    return system_user()
+
+
+def require_role(*_roles: str):
+    """Kept for call-site compatibility; role checks are bypassed without authentication."""
+
+    def dependency() -> UserRow:
+        return current_user()
 
     return dependency
-
-
-def is_at_least(workspace_role: str, role: str) -> bool:
-    levels = {"operator": 1, "supervisor": 2, "admin": 3}
-    return levels.get(workspace_role, 0) >= levels.get(role, 99)

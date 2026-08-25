@@ -2,8 +2,6 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import select
-
 os.environ["DATABASE_URL"] = (
     f"sqlite:///{Path(os.getenv('TEMP', '.')) / f'outurn-tests-{uuid4().hex}.db'}"
 )
@@ -11,40 +9,12 @@ os.environ["DATABASE_URL"] = (
 # local .env selects a real external provider.
 os.environ["EXTRACTION_PROVIDER"] = "local"
 
-from app.auth.passwords import hash_password
-from app.core.config import get_settings
 from app.domain.models import DocumentField, DocumentType, ShipmentDocument, ShipmentItem
-from app.repositories.operations import OperationsRepository, OrganizationRow
-from app.repositories.reconciliations import ReconciliationRepository
-
-TEST_EMAIL = "test-admin@outurn.local"
-TEST_PASSWORD = "test-password-1234"
 
 
 def login(client):
-    response = client.post("/api/auth/login", json={"email": TEST_EMAIL, "password": TEST_PASSWORD})
-    assert response.status_code == 200, response.text
+    """Authentication is disabled; the shared operator principal is applied automatically."""
     return client
-
-
-def pytest_configure():
-    settings = get_settings()
-    repository = ReconciliationRepository(settings.database_url)
-    operations = OperationsRepository(settings.database_url)
-    with operations.session_factory() as session:
-        organization = session.scalar(
-            select(OrganizationRow).where(OrganizationRow.code == "DEFAULT")
-        )
-    assert organization is not None
-    organization_id = organization.id
-    if repository.get_user_by_email(TEST_EMAIL) is None:
-        repository.create_user(
-            email=TEST_EMAIL,
-            display_name="Test Admin",
-            password_hash=hash_password(TEST_PASSWORD),
-            role="admin",
-            organization_id=organization_id,
-        )
 
 
 def f(value, confidence=0.95):

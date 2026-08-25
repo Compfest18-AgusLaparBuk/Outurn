@@ -23,7 +23,7 @@ import {
   LoadingState,
 } from "@/components/ui/page-primitives";
 import { AppSelect } from "@/components/ui/select";
-import { fetchMe, fetchWorkQueue, updateWorkQueue } from "@/lib/api";
+import { fetchWorkQueue, updateWorkQueue } from "@/lib/api";
 
 function isOverdue(value: string | null | undefined, now: number | null) {
   return Boolean(value && now !== null && new Date(value).getTime() < now);
@@ -42,12 +42,10 @@ export default function WorkQueuePage() {
   const [assignment, setAssignment] = useState("");
   const [due, setDue] = useState("");
   const client = useQueryClient();
-  const me = useQuery({ queryKey: ["auth", "me"], queryFn: fetchMe });
   const params = new URLSearchParams({ page: String(page), page_size: "50" });
   if (status) params.set("status", status);
   if (priority) params.set("priority", priority);
   if (assignment === "unassigned") params.set("assignee", "unassigned");
-  if (assignment === "mine" && me.data?.id) params.set("assignee", me.data.id);
   const query = params.toString();
   const result = useQuery({
     queryKey: ["work-queue", query],
@@ -121,7 +119,6 @@ export default function WorkQueuePage() {
           }}
           options={[
             { value: "", label: "Semua penugasan" },
-            { value: "mine", label: "Tugas saya" },
             { value: "unassigned", label: "Belum ditugaskan" },
           ]}
         />

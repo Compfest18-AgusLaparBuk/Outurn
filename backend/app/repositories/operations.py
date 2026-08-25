@@ -1082,6 +1082,52 @@ class OperationsRepository:
             session.commit()
             return organization.id
 
+    def ensure_system_user(self, email: str) -> UserRow:
+        """Provision the shared operator principal used when authentication is disabled."""
+        with self.session_factory() as session:
+            organization_id = session.scalar(
+                select(OrganizationRow.id)
+                .where(OrganizationRow.active.is_(True))
+                .order_by(OrganizationRow.created_at.asc())
+                .limit(1)
+            )
+            if organization_id is None:
+                organization_id = self.ensure_default_workspace()
+            now = now_utc()
+            user = session.scalar(select(UserRow).where(UserRow.email == email))
+            if user is None:
+                user = UserRow(
+                    id=str(uuid.uuid4()),
+                    email=email,
+                    display_name="Operator Outurn",
+                    password_hash="",
+                    role="admin",
+                    active=True,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(user)
+                session.flush()
+            membership = session.scalar(
+                select(WorkspaceMembershipRow).where(
+                    WorkspaceMembershipRow.organization_id == organization_id,
+                    WorkspaceMembershipRow.user_id == user.id,
+                )
+            )
+            if membership is None:
+                session.add(
+                    WorkspaceMembershipRow(
+                        id=str(uuid.uuid4()),
+                        organization_id=organization_id,
+                        user_id=user.id,
+                        role="admin",
+                        active=True,
+                        created_at=now,
+                    )
+                )
+            session.commit()
+            return user
+
     def ensure_core_policy(self) -> None:
         """Seed one explicit published policy for local/test databases."""
         with self.session_factory() as session:

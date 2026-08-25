@@ -1,28 +1,29 @@
 "use client";
 
 import { PageHeader } from "@/components/ui/page-header";
-import { useSettingsCopy } from "@/components/settings/settings-copy";
 
 export default function SecuritySettingsPage() {
-  const { t } = useSettingsCopy();
   return (
     <div className="operations-page">
-      <PageHeader title={t.security} description={t.securityPageDescription} />
+      <PageHeader
+        title="Keamanan"
+        description="Status proteksi data dan catatan operasional pada ruang kerja ini."
+      />
       <div className="dashboard-grid">
-        <section className="data-panel" aria-labelledby="security-authentication-title">
-          <h2 id="security-authentication-title">{t.authentication}</h2>
+        <section className="data-panel" aria-labelledby="security-data-title">
+          <h2 id="security-data-title">Proteksi data</h2>
           <dl className="definition-list">
-            <div><dt>{t.sessions}</dt><dd>{t.opaqueServerSessions}</dd></div>
-            <div><dt>{t.passwords}</dt><dd>{t.argonHashed}</dd></div>
-            <div><dt>{t.secureCookie}</dt><dd>{t.readOnlyDeploymentSetting}</dd></div>
+            <div><dt>Penyimpanan</dt><dd>Dokumen tersimpan di vault terstruktur per ruang kerja</dd></div>
+            <div><dt>Koneksi integrasi</dt><dd>Kredensial disimpan terenkripsi dan tidak pernah ditampilkan</dd></div>
+            <div><dt>Akses aplikasi</dt><dd>Tanpa login — semua pengguna perangkat ini langsung masuk ke sistem</dd></div>
           </dl>
         </section>
-        <section className="data-panel" aria-labelledby="security-access-title">
-          <h2 id="security-access-title">{t.access}</h2>
+        <section className="data-panel" aria-labelledby="security-audit-title">
+          <h2 id="security-audit-title">Jejak audit</h2>
           <dl className="definition-list">
-            <div><dt>{t.organizationScoping}</dt><dd>{t.membershipCheckedServerSide}</dd></div>
-            <div><dt>{t.apiAccess}</dt><dd>{t.serviceAccountsAndTokens}</dd></div>
-            <div><dt>{t.securityEvents}</dt><dd>{t.recordedInActivityLog}</dd></div>
+            <div><dt>Peristiwa operasional</dt><dd>Rekonsiliasi, pengecualian, dan keputusan pelepasan tercatat</dd></div>
+            <div><dt>Log aktivitas</dt><dd>Semua perubahan tercatat pada halaman Log aktivitas</dd></div>
+            <div><dt>Retensi</dt><dd>Diatur melalui pengaturan retensi ruang kerja</dd></div>
           </dl>
         </section>
       </div>

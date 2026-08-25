@@ -85,38 +85,6 @@ export async function overrideDecision(
   );
 }
 
-export async function fetchMe(): Promise<CurrentUser> {
-  return parse(await fetch("/api/auth/me", { cache: "no-store" }));
-}
-
-export async function login(
-  email: string,
-  password: string,
-): Promise<CurrentUser> {
-  return parse(
-    await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    }),
-  );
-}
-export async function changePassword(
-  current_password: string,
-  new_password: string,
-): Promise<CurrentUser> {
-  return parse(
-    await fetch("/api/auth/password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ current_password, new_password }),
-    }),
-  );
-}
-
-export async function logout(): Promise<void> {
-  await parse(await fetch("/api/auth/logout", { method: "POST" }));
-}
 export async function fetchHistory(
   params: URLSearchParams,
 ): Promise<HistoryResponse> {

@@ -30,7 +30,7 @@ for _ in $(seq 1 72); do
   backend_status="$(docker inspect --format '{{.State.Health.Status}}' "${backend}" 2>/dev/null || true)"
 
   if [[ "${postgres_status}" == healthy && "${backend_status}" == healthy ]]; then
-    if curl --fail --silent --show-error http://127.0.0.1:3000/login >/dev/null; then
+    if curl --fail --silent --show-error http://127.0.0.1:3000/ >/dev/null; then
       printf '%s\n' "${TARGET_SHA}" > "${SUCCESS_FILE}"
       exit 0
     fi

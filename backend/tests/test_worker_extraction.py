@@ -1,10 +1,8 @@
 import io
-from datetime import UTC, datetime
-from uuid import uuid4
 
 from reportlab.pdfgen import canvas
+from sqlalchemy import select
 
-from app.auth.passwords import hash_password
 from app.repositories.operations import OperationsRepository, OrganizationRow
 from app.repositories.reconciliations import ReconciliationRepository
 from app.services.document_storage import DocumentStorage
@@ -35,27 +33,14 @@ def test_worker_extracts_validated_vault_document(tmp_path):
     database_url = f"sqlite:///{tmp_path / 'worker.db'}"
     reconciliation = ReconciliationRepository(database_url)
     operations = OperationsRepository(database_url)
-    organization_id = str(uuid4())
-    now = datetime.now(UTC)
+    user = operations.ensure_system_user("worker@example.test")
     with operations.session_factory() as session:
-        session.add(
-            OrganizationRow(
-                id=organization_id,
-                name="Worker workspace",
-                code=f"WORK-{uuid4().hex[:8]}",
-                active=True,
-                created_at=now,
-                updated_at=now,
-            )
+        organization_id = session.scalar(
+            select(OrganizationRow.id)
+            .where(OrganizationRow.active.is_(True))
+            .order_by(OrganizationRow.created_at.asc())
+            .limit(1)
         )
-        session.commit()
-    user = reconciliation.create_user(
-        email="worker@example.test",
-        display_name="Worker uploader",
-        password_hash=hash_password("a secure password"),
-        role="operator",
-        organization_id=organization_id,
-    )
     shipment = reconciliation.create_shipment(
         organization_id=organization_id,
         payload={
