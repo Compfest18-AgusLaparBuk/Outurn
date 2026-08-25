@@ -1,6 +1,6 @@
 # Architecture
 
-GateGuard adalah pemeriksaan konsistensi pra-pengiriman untuk tiga dokumen shipment: Delivery Order, Invoice, dan Packing List.
+Outurn adalah pemeriksaan konsistensi pra-pengiriman untuk tiga dokumen shipment: Delivery Order, Invoice, dan Packing List.
 
 ## Batasan Desain
 
@@ -18,6 +18,8 @@ Layer ekstraksi mengubah dokumen menjadi evidence terstruktur. Layer rekonsilias
 6. Aturan rekonsiliasi deterministik membandingkan field penting dan line item.
 7. Hasil, evidence, serta keputusan sistem disimpan.
 8. Supervisor dapat merekam override. Keputusan awal sistem tetap immutable.
+
+Saat OpenRouter dipakai, langkah ekstraksi menggunakan playbook domain lokal sebagai retrieval context dan memaksa satu function call canonical. Ini adalah adaptation layer untuk kebutuhan AIC; provider tidak menerima kewenangan untuk menjalankan tool eksternal atau mengubah keputusan release.
 
 ## Trust Boundary
 
@@ -63,7 +65,7 @@ File upload mentah diproses pada temporary storage yang dibatasi scope dan tidak
 
 ## Non-Goals
 
-GateGuard tidak dimaksudkan untuk:
+Outurn tidak dimaksudkan untuk:
 
 - memverifikasi isi fisik paket;
 - menggantikan WMS, ERP, atau TMS;

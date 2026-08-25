@@ -16,7 +16,7 @@ configure_logging()
 settings = get_settings()
 
 app = FastAPI(
-    title="GateGuard API",
+    title="Outurn API",
     version="0.1.0",
     docs_url="/docs" if settings.app_env != "production" else None,
     redoc_url=None,

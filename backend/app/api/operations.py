@@ -889,7 +889,7 @@ def observability(request: Request, user: UserRow = Depends(current_user)):
         database_status = "unavailable"
     configured_extraction = settings.extraction_provider in {"local", "paddle"} or bool(
         settings.openai_api_key
-    )
+    ) or bool(settings.openrouter_api_key)
     connections = get_operations().list_connections(organization_id=org.id)
     webhooks = get_operations().list_webhooks(organization_id=org.id)
     from app.repositories.operations import WorkerHeartbeatRow

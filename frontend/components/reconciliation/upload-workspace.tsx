@@ -1,5 +1,7 @@
 "use client";
 
+import { Banner } from "@cloudflare/kumo/components/banner";
+import { Grid, GridItem } from "@cloudflare/kumo/components/grid";
 import { FileTextIcon as FileText, SpinnerGapIcon as SpinnerGap } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
 import { useState, useSyncExternalStore } from "react";
@@ -34,26 +36,32 @@ export function UploadWorkspace() {
         description={t("checkShipmentDescription")}
       />
       <section className="document-check-page" aria-label="Dokumen shipment">
-        <div className="grid gap-3 md:grid-cols-3">
-          <UploadSlot
-            label={t("deliveryOrder")}
-            hint={t("fileTypes")}
-            file={files.delivery_order}
-            onFile={(file, error) => setFile("delivery_order", file, error)}
-          />
-          <UploadSlot
-            label="Invoice"
-            hint={t("fileTypes")}
-            file={files.invoice}
-            onFile={(file, error) => setFile("invoice", file, error)}
-          />
-          <UploadSlot
-            label={t("packingList")}
-            hint={t("fileTypes")}
-            file={files.packing_list}
-            onFile={(file, error) => setFile("packing_list", file, error)}
-          />
-        </div>
+        <Grid variant="3up" gap="sm">
+          <GridItem>
+            <UploadSlot
+              label={t("deliveryOrder")}
+              hint={t("fileTypes")}
+              file={files.delivery_order}
+              onFile={(file, error) => setFile("delivery_order", file, error)}
+            />
+          </GridItem>
+          <GridItem>
+            <UploadSlot
+              label="Invoice"
+              hint={t("fileTypes")}
+              file={files.invoice}
+              onFile={(file, error) => setFile("invoice", file, error)}
+            />
+          </GridItem>
+          <GridItem>
+            <UploadSlot
+              label={t("packingList")}
+              hint={t("fileTypes")}
+              file={files.packing_list}
+              onFile={(file, error) => setFile("packing_list", file, error)}
+            />
+          </GridItem>
+        </Grid>
         <section className="document-check-action">
           <div>
             <div className="cf-section-title">
@@ -80,9 +88,13 @@ export function UploadWorkspace() {
           </Button>
         </section>
         {mutation.isPending && (
-          <div className="document-check-status" role="status">
-            {t("readingDocuments")}
-          </div>
+          <Banner
+            className="document-check-status"
+            variant="default"
+            size="sm"
+            icon={<SpinnerGap size={15} className="animate-spin" />}
+            title={t("readingDocuments")}
+          />
         )}
       </section>
     </CloudflarePageShell>

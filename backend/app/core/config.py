@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     cookie_secure: bool | None = None
     app_version: str = "0.1.0"
 
-    extraction_provider: Literal["auto", "local", "openai", "paddle"] = "auto"
+    extraction_provider: Literal["auto", "local", "openai", "openrouter", "paddle"] = "auto"
     critical_confidence_threshold: float = 0.75
     max_ai_concurrency: int = 4
     worker_poll_interval_seconds: float = 2.0
@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5-mini"
     openai_base_url: str = "https://api.openai.com/v1"
     openai_timeout_seconds: float = 45.0
+    openrouter_api_key: str | None = None
+    openrouter_model: str = "openai/gpt-4o-mini"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_timeout_seconds: float = 45.0
     paddle_device: str = "cpu"
 
     @field_validator("cors_origins", mode="before")
@@ -158,6 +162,8 @@ class Settings(BaseSettings):
             )
         if self.openai_api_key and urlparse(self.openai_base_url).scheme != "https":
             raise ValueError("OPENAI_BASE_URL must use HTTPS in production")
+        if self.openrouter_api_key and urlparse(self.openrouter_base_url).scheme != "https":
+            raise ValueError("OPENROUTER_BASE_URL must use HTTPS in production")
         return self
 
     @property

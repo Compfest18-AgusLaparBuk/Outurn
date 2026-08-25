@@ -213,11 +213,6 @@ export async function decideRelease(
   );
 }
 
-export async function fetchOrganizations(): Promise<{
-  items: Array<Record<string, unknown>>;
-}> {
-  return ops("/organizations");
-}
 export async function fetchWorkspaceContext(): Promise<{
   organization: Record<string, unknown>;
   role: string;
@@ -238,19 +233,6 @@ export async function recordRecent(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-}
-export async function fetchGlobalSearch(
-  query: string,
-): Promise<{
-  items: Array<{
-    type: string;
-    id: string;
-    label: string;
-    description: string;
-    href: string;
-  }>;
-}> {
-  return ops(`/search?q=${encodeURIComponent(query)}`);
 }
 export async function fetchWorkspaceShipment(
   id: string,

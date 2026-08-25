@@ -25,6 +25,11 @@ from app.domain.models import (
     ShipmentDocument,
     ShipmentItem,
 )
+from app.services.ai_customization import (
+    build_extraction_policy,
+    build_extraction_prompt,
+    build_extraction_tool,
+)
 from app.services.file_validation import SafeUpload
 from app.services.preprocessing import preprocess_upload
 
@@ -417,12 +422,20 @@ OPENAI_FIELDS = frozenset(
     }
 )
 OPENAI_ITEM_FIELDS = frozenset({"sku", "description", "quantity", "unit_price", "line_total"})
+OPENROUTER_FIELDS = OPENAI_FIELDS | {"line_items_complete"}
 
 
-def _validate_openai_payload(value: Any) -> dict[str, Any]:
+def _validate_openai_payload(
+    value: Any,
+    *,
+    require_line_items_complete: bool = False,
+) -> dict[str, Any]:
     """Validate JSON-object provider output before it can affect a decision."""
-    if not isinstance(value, dict) or set(value) != OPENAI_FIELDS:
+    expected_fields = OPENROUTER_FIELDS if require_line_items_complete else OPENAI_FIELDS
+    if not isinstance(value, dict) or set(value) != expected_fields:
         raise ProviderError("The AI provider returned an invalid structured response.")
+    if require_line_items_complete and not isinstance(value.get("line_items_complete"), bool):
+        raise ProviderError("The AI provider returned an invalid line-item coverage flag.")
     detected = value.get("detected_document_type")
     if detected is not None and detected not in {item.value for item in DocumentType}:
         raise ProviderError("The AI provider returned an invalid document type.")
@@ -504,6 +517,14 @@ OPENAI_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
 }
+
+
+def _openrouter_schema() -> dict[str, Any]:
+    schema = json.loads(json.dumps(OPENAI_SCHEMA))
+    properties = schema["properties"]
+    properties["line_items_complete"] = {"type": "boolean"}
+    schema["required"].append("line_items_complete")
+    return schema
 
 
 class OpenAIExtractor(Extractor):
@@ -705,6 +726,280 @@ class OpenAIExtractor(Extractor):
         except Exception:
             logger.info("openai_evidence_correlation_unavailable")
             return document
+
+
+def _ground_model_document(
+    document: ShipmentDocument,
+    *,
+    word_boxes: list[WordBox],
+    document_text: str,
+    expected_type: DocumentType,
+    provider: str,
+) -> ShipmentDocument:
+    """Calibrate model output against source evidence before reconciliation sees it."""
+
+    _document_evidence(document, word_boxes)
+    detected_from_text, detected_confidence = _detect_document_type(document_text)
+    if detected_from_text == expected_type and document.detected_document_type == expected_type:
+        document.document_type_confidence = max(
+            document.document_type_confidence,
+            detected_confidence,
+        )
+    elif detected_from_text is not None and detected_from_text != expected_type:
+        document.detected_document_type = detected_from_text
+        document.document_type_confidence = detected_confidence
+
+    fields = [
+        document.document_id,
+        document.shipment_id,
+        document.sender,
+        document.recipient,
+        document.destination,
+        document.document_total,
+    ]
+    for item in document.items:
+        fields.extend([item.sku, item.description, item.quantity, item.unit_price, item.line_total])
+    for value in fields:
+        if value.value is None:
+            continue
+        if value.evidence:
+            value.confidence = max(value.confidence, 0.82)
+            value.source = f"{provider}:grounded"
+        else:
+            # A model self-score is never enough to authorize a release decision.
+            value.confidence = min(value.confidence, 0.65)
+            value.source = f"{provider}:ungrounded"
+
+    critical_item_fields = ("sku", "description", "quantity")
+    document.line_items_complete = bool(
+        document.line_items_complete
+        and document.items
+        and all(
+            getattr(item, name).value is not None and bool(getattr(item, name).evidence)
+            for item in document.items
+            for name in critical_item_fields
+        )
+    )
+    return document
+
+
+class OpenRouterExtractor(Extractor):
+    """OpenRouter adapter using Outurn's local RAG playbook and one extraction tool."""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self._semaphore = asyncio.Semaphore(settings.max_ai_concurrency)
+
+    async def extract(self, upload: SafeUpload, document_type: DocumentType) -> ShipmentDocument:
+        if not self.settings.openrouter_api_key:
+            raise ExtractionUnavailableError("OpenRouter extraction is not configured.")
+
+        document_text = ""
+        word_boxes: list[WordBox] = []
+        if upload.media_type.startswith("image/"):
+            content_item: dict[str, Any] = {
+                "type": "image_url",
+                "image_url": {
+                    "url": (
+                        f"data:{upload.media_type};base64,"
+                        f"{base64.b64encode(upload.data).decode('ascii')}"
+                    ),
+                    "detail": "high",
+                },
+            }
+        else:
+            try:
+                word_boxes = await asyncio.to_thread(
+                    _pdf_word_boxes,
+                    upload.data,
+                    self.settings.max_pdf_pages,
+                )
+            except Exception as exc:
+                raise ExtractionUnavailableError(
+                    "The PDF text layer could not be read for OpenRouter extraction."
+                ) from exc
+            document_text = " ".join(box.text for box in word_boxes).strip()
+            if len(document_text) < 20:
+                raise ExtractionUnavailableError(
+                    "No usable PDF text layer was found. Configure OCR for this document."
+                )
+            content_item = {
+                "type": "text",
+                "text": "UNTRUSTED DOCUMENT DATA:\n"
+                + document_text[: self.settings.max_pdf_text_chars],
+            }
+
+        policy = build_extraction_policy(document_type, document_text)
+        prompt = build_extraction_prompt(document_type)
+        user_content: str | list[dict[str, Any]]
+        if content_item["type"] == "text":
+            user_content = f"{prompt}\n\n{content_item['text']}"
+        else:
+            user_content = [{"type": "text", "text": prompt}, content_item]
+        payload = {
+            "model": self.settings.openrouter_model,
+            "messages": [
+                {"role": "developer", "content": policy},
+                {"role": "user", "content": user_content},
+            ],
+            "tools": [build_extraction_tool(_openrouter_schema())],
+            "tool_choice": {
+                "type": "function",
+                "function": {"name": "emit_shipment_document"},
+            },
+        }
+        headers = {
+            "Authorization": f"Bearer {self.settings.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": self.settings.app_public_origin,
+            "X-Title": "Outurn shipment assurance",
+        }
+        try:
+            async with (
+                self._semaphore,
+                httpx.AsyncClient(
+                    timeout=self.settings.openrouter_timeout_seconds,
+                    follow_redirects=False,
+                ) as client,
+            ):
+                response = await client.post(
+                    self.settings.openrouter_base_url.rstrip("/") + "/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                body = response.json()
+        except httpx.TimeoutException as exc:
+            raise ProviderError("The configured AI provider timed out.") from exc
+        except httpx.HTTPStatusError as exc:
+            logger.warning("openrouter_provider_http_error status=%s", exc.response.status_code)
+            raise ProviderError(
+                "The configured AI provider rejected the extraction request."
+            ) from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("openrouter_provider_error type=%s", type(exc).__name__)
+            raise ProviderError(
+                "The configured AI provider could not complete extraction."
+            ) from exc
+
+        arguments = _tool_response_arguments(body)
+        try:
+            data = _validate_openai_payload(
+                json.loads(arguments),
+                require_line_items_complete=True,
+            )
+        except json.JSONDecodeError as exc:
+            raise ProviderError("The AI provider returned invalid tool arguments.") from exc
+
+        def llm_field(name: str) -> DocumentField:
+            value = data.get(name)
+            return field(
+                value,
+                str(value) if value is not None else None,
+                0.65 if value is not None else 0.0,
+                "openrouter_tool_call",
+            )
+
+        items: list[ShipmentItem] = []
+        for item in data["items"]:
+            items.append(
+                ShipmentItem(
+                    sku=field(
+                        item.get("sku"),
+                        confidence=0.65 if item.get("sku") else 0.0,
+                        source="openrouter_tool_call",
+                    ),
+                    description=field(
+                        item.get("description"),
+                        confidence=0.65 if item.get("description") else 0.0,
+                        source="openrouter_tool_call",
+                    ),
+                    quantity=field(
+                        item.get("quantity"),
+                        confidence=0.65 if item.get("quantity") is not None else 0.0,
+                        source="openrouter_tool_call",
+                    ),
+                    unit_price=field(
+                        item.get("unit_price"),
+                        confidence=0.65 if item.get("unit_price") is not None else 0.0,
+                        source="openrouter_tool_call",
+                    ),
+                    line_total=field(
+                        item.get("line_total"),
+                        confidence=0.65 if item.get("line_total") is not None else 0.0,
+                        source="openrouter_tool_call",
+                    ),
+                )
+            )
+
+        detected_raw = data.get("detected_document_type")
+        detected = DocumentType(detected_raw) if detected_raw is not None else None
+        document = ShipmentDocument(
+            document_type=document_type,
+            filename=upload.filename,
+            detected_document_type=detected,
+            document_type_confidence=0.65 if detected is not None else 0.0,
+            line_items_complete=data["line_items_complete"],
+            document_id=llm_field("document_id"),
+            shipment_id=llm_field("shipment_id"),
+            sender=llm_field("sender"),
+            recipient=llm_field("recipient"),
+            destination=llm_field("destination"),
+            document_total=llm_field("document_total"),
+            items=items,
+            extraction_provider=f"openrouter:{self.settings.openrouter_model}:rag-tool",
+        )
+
+        if upload.media_type == "application/pdf":
+            return _ground_model_document(
+                document,
+                word_boxes=word_boxes,
+                document_text=document_text,
+                expected_type=document_type,
+                provider="openrouter",
+            )
+
+        # Vision models do not expose coordinates. If PaddleOCR is installed, use it as
+        # an independent evidence layer; otherwise the result remains REVIEW-gated.
+        try:
+            ocr_document = await PaddleExtractor(self.settings).extract(upload, document_type)
+            return _ground_model_document(
+                document,
+                word_boxes=_fields_as_word_boxes(ocr_document),
+                document_text="",
+                expected_type=document_type,
+                provider="openrouter",
+            )
+        except (ExtractionUnavailableError, ProviderError):
+            return _ground_model_document(
+                document,
+                word_boxes=[],
+                document_text="",
+                expected_type=document_type,
+                provider="openrouter",
+            )
+        except Exception:
+            logger.info("openrouter_evidence_correlation_unavailable")
+            return document
+
+
+def _tool_response_arguments(body: dict[str, Any]) -> str:
+    choices = body.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ProviderError("The configured AI provider returned an invalid completion.")
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
+    if isinstance(tool_calls, list) and tool_calls:
+        function = tool_calls[0].get("function") if isinstance(tool_calls[0], dict) else None
+        arguments = function.get("arguments") if isinstance(function, dict) else None
+        if isinstance(arguments, str) and arguments:
+            return arguments
+    # Some OpenRouter-compatible gateways return the selected function payload as content.
+    # This is still validated against the same canonical schema and never treated as prose.
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, str) and content:
+        return content
+    raise ProviderError("The AI provider returned no extraction tool call.")
 
 
 def _response_output_text(body: dict[str, Any]) -> str:
@@ -954,6 +1249,7 @@ class ExtractionRouter:
             max_text_chars=settings.max_pdf_text_chars,
         )
         self.openai = OpenAIExtractor(settings)
+        self.openrouter = OpenRouterExtractor(settings)
         self.paddle = PaddleExtractor(settings)
 
     async def extract(self, upload: SafeUpload, document_type: DocumentType) -> ShipmentDocument:
@@ -969,6 +1265,8 @@ class ExtractionRouter:
             return await finish(await self.local.extract(extraction_upload, document_type))
         if provider == "openai":
             return await finish(await self.openai.extract(extraction_upload, document_type))
+        if provider == "openrouter":
+            return await finish(await self.openrouter.extract(extraction_upload, document_type))
         if provider == "paddle":
             return await finish(await self.paddle.extract(extraction_upload, document_type))
 
@@ -982,6 +1280,14 @@ class ExtractionRouter:
                     return await finish(local_document)
             except ExtractionUnavailableError as exc:
                 local_error = exc
+
+        if self.settings.openrouter_api_key:
+            try:
+                return await finish(await self.openrouter.extract(extraction_upload, document_type))
+            except ProviderError:
+                if local_document is not None:
+                    logger.warning("openrouter_provider_fallback_to_local_pdf")
+                    return await finish(local_document)
 
         if self.settings.openai_api_key:
             try:

@@ -1,10 +1,10 @@
 "use client";
 
 import { Badge } from "@cloudflare/kumo/components/badge";
+import { Collapsible } from "@cloudflare/kumo/components/collapsible";
 import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { Table } from "@cloudflare/kumo/components/table";
 import {
-  CaretDownIcon as CaretDown,
   ShieldCheckIcon as ShieldCheck,
   WarningCircleIcon as WarningCircle,
 } from "@phosphor-icons/react";
@@ -211,11 +211,11 @@ export function ResultWorkspace({
                     : ""}
                 </div>
               )}
-              <details className="cf-evidence-details">
-                <summary>
-                  Sumber bukti & detail teknis <CaretDown size={14} />
-                </summary>
-                <div>
+              <Collapsible.Root className="cf-evidence-details">
+                <Collapsible.DefaultTrigger>
+                  Sumber bukti & detail teknis
+                </Collapsible.DefaultTrigger>
+                <Collapsible.DefaultPanel>
                   {selected.evidence.map((item, index) => (
                     <p key={index}>
                       <span className="table-cell-primary">
@@ -225,8 +225,8 @@ export function ResultWorkspace({
                       {item.field} · {item.evidence.length} area bukti
                     </p>
                   ))}
-                </div>
-              </details>
+                </Collapsible.DefaultPanel>
+              </Collapsible.Root>
             </DataTableSurface>
           )}
 

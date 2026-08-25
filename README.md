@@ -94,7 +94,19 @@ uv run python ../evaluation/run.py
 
 Production memerlukan PostgreSQL, `APP_API_KEY` dengan panjang minimal 32 karakter, `CORS_ORIGINS` eksplisit tanpa wildcard, serta cookie aman. `APP_API_KEY` hanya dipakai BFF sebagai credential server-to-server. Jika ekstraksi OpenAI diaktifkan, `OPENAI_API_KEY` juga harus tetap berada di sisi server.
 
-Document vault menyimpan byte PDF/JPEG/PNG di storage yang dibatasi scope organisasi, merekam hash SHA-256 dan versi yang immutable, serta dapat menandai hasil sebagai `NEEDS_REVIEW` ketika provider tidak dikonfigurasi. GateGuard memeriksa konsistensi lintas dokumen dan evidence alur kerja; aplikasi ini tidak membuktikan isi fisik barang atau menggantikan referensi WMS/ERP yang otoritatif.
+Document vault menyimpan byte PDF/JPEG/PNG di storage yang dibatasi scope organisasi, merekam hash SHA-256 dan versi yang immutable, serta dapat menandai hasil sebagai `NEEDS_REVIEW` ketika provider tidak dikonfigurasi. Outurn memeriksa konsistensi lintas dokumen dan evidence alur kerja; aplikasi ini tidak membuktikan isi fisik barang atau menggantikan referensi WMS/ERP yang otoritatif.
+
+## Satu Workflow Utama AIC
+
+Outurn sengaja memusatkan MVP pada satu workflow berantai:
+
+1. Operator mengunggah Delivery Order, Invoice, dan Packing List.
+2. Extraction router menormalisasi setiap dokumen; bila OpenRouter diaktifkan, model menerima playbook domain lokal melalui RAG dan wajib memanggil tool `emit_shipment_document`.
+3. Evidence source dikorelasikan ulang ke koordinat dokumen dan hasil yang tidak terbukti tetap ditandai untuk review.
+4. Engine rekonsiliasi deterministic membandingkan identitas, tujuan, item, jumlah, dan total lalu menghasilkan `CLEAR`, `REVIEW`, atau `HOLD`.
+5. Operator meninjau temuan dan supervisor dapat mencatat override yang tetap menyimpan keputusan sistem asli pada audit trail.
+
+Dengan demikian, AI tidak menerima prompt zero-shot mentah dan tidak memiliki kewenangan release. Kustomisasi AIC berada pada local retrieval playbook, forced function calling, validasi schema, evidence grounding, dan deterministic decision gate. Konfigurasi OpenRouter hanya berada di backend melalui `OPENROUTER_API_KEY`; jangan pernah memakai `NEXT_PUBLIC_*` untuk key tersebut.
 
 ## Kontribusi dan Dukungan
 

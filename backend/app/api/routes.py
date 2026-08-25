@@ -511,6 +511,7 @@ def monitoring(request: Request, user: UserRow = Depends(current_user)):
         "version": settings.app_version,
         "provider_configured": settings.extraction_provider == "local"
         or bool(settings.openai_api_key)
+        or bool(settings.openrouter_api_key)
         or settings.extraction_provider == "paddle",
         "limits": {
             "max_upload_bytes": settings.max_upload_bytes,
@@ -612,6 +613,7 @@ def runtime(_: UserRow = Depends(current_user)):
         "extraction_provider": settings.extraction_provider,
         "provider_configured": settings.extraction_provider == "local"
         or bool(settings.openai_api_key)
+        or bool(settings.openrouter_api_key)
         or settings.extraction_provider == "paddle",
         "critical_confidence_threshold": settings.critical_confidence_threshold,
         "max_upload_bytes": settings.max_upload_bytes,
