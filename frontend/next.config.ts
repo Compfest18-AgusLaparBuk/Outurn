@@ -7,6 +7,7 @@ const contentSecurityPolicy = [
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
+  "frame-src 'self' https://www.openstreetmap.org",
   "object-src 'self' blob:",
   "img-src 'self' blob: data:",
   "connect-src 'self'",
@@ -32,6 +33,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  allowedDevOrigins: ["127.0.0.1"],
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

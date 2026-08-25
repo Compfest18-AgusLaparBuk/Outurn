@@ -1,6 +1,7 @@
 "use client";
 
 import { FileIcon as File, FileArrowUpIcon as FileArrowUp, XIcon as X } from "@phosphor-icons/react";
+import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { validateFile } from "@/lib/validation";
@@ -32,8 +33,8 @@ export function UploadSlot({
   }
 
   return (
-    <section
-      className={`min-h-40 rounded-md border bg-kumo-base p-4 ${drag ? "border-kumo-focus ring-2 ring-kumo-focus/20" : "border-kumo-line"}`}
+    <LayerCard
+      className={`shipment-upload-card ${drag ? "shipment-upload-card--dragging" : ""}`}
       onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
       onDragLeave={() => setDrag(false)}
       onDrop={(e) => {
@@ -43,19 +44,19 @@ export function UploadSlot({
       }}
       aria-label={`Upload ${label}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="shipment-upload-card__header">
         <div>
-          <h2 className="text-sm font-semibold text-kumo-contrast">{label}</h2>
-          <p className="mt-1 text-sm text-kumo-neutral-750">{hint}</p>
+          <h3>{label}</h3>
+          <p>{hint}</p>
         </div>
         {file ? <File size={18} className="text-kumo-success" aria-hidden /> : <FileArrowUp size={18} className="text-kumo-neutral-750" aria-hidden />}
       </div>
 
       {file ? (
-        <div className="mt-6 flex items-center justify-between gap-2 rounded-md bg-kumo-recessed px-3 py-2">
+        <div className="shipment-upload-file">
           <div className="min-w-0">
-            <div className="truncate text-sm font-medium">{file.name}</div>
-            <div className="text-sm text-kumo-neutral-750">{(file.size / 1024).toFixed(0)} KB</div>
+            <div className="shipment-upload-file__name">{file.name}</div>
+            <div className="shipment-upload-file__size">{(file.size / 1024).toFixed(0)} KB</div>
           </div>
           <Button variant="ghost" aria-label={`Remove ${label}`} onClick={() => accept(null)}>
             <X size={16} />
@@ -65,7 +66,7 @@ export function UploadSlot({
         <Button
           type="button"
           variant="secondary"
-          className="mt-5 h-16 w-full border border-dashed border-kumo-line text-sm text-kumo-neutral-750"
+          className="shipment-upload-button"
           onClick={() => inputRef.current?.click()}
         >
           Drop a file here or choose one
@@ -77,9 +78,9 @@ export function UploadSlot({
         type="file"
         className="sr-only"
         accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
-        onChange={(e) => accept(e.target.files?.[0] || null)}
+        onChange={(e) => accept(e.currentTarget.files?.[0] || null)}
       />
       {error && <p className="mt-2 text-sm text-kumo-danger" role="alert">{error}</p>}
-    </section>
+    </LayerCard>
   );
 }

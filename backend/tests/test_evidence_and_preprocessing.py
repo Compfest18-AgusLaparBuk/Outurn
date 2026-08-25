@@ -42,6 +42,21 @@ def test_document_evidence_uses_normalized_source_coordinates():
     assert evidence.text == "SKU-01"
 
 
+def test_document_evidence_matches_adjacent_words_as_one_source_span():
+    document = _document(DocumentType.INVOICE)
+    _document_evidence(
+        document,
+        [
+            WordBox(page=1, x=0.21, y=0.33, width=0.04, height=0.03, text="PT"),
+            WordBox(page=1, x=0.26, y=0.33, width=0.08, height=0.03, text="Tujuan"),
+        ],
+    )
+    evidence = document.recipient.evidence[0]
+    assert evidence.text == "PT Tujuan"
+    assert evidence.x == 0.21
+    assert evidence.width == 0.13
+
+
 def test_quantity_estimate_stays_empty_when_price_is_zero_or_missing():
     documents = {
         DocumentType.INVOICE: _document(DocumentType.INVOICE, quantity=10, price=0.0),

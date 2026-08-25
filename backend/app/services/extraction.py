@@ -39,6 +39,7 @@ MAX_EXTRACTED_FIELD_CHARS = 2_000
 MAX_LINE_ITEMS = 2_000
 MAX_ABS_NUMERIC = Decimal("1e24")
 EVIDENCE_MATCH_THRESHOLD = 88.0
+MAX_EVIDENCE_SPAN_WORDS = 24
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,37 @@ def _evidence_for_value(value: Any, word_boxes: list[WordBox]) -> list[EvidenceR
     needle = _normalise_evidence_text(value)
     if not needle:
         return []
+    for start, first in enumerate(word_boxes):
+        combined = ""
+        span: list[WordBox] = []
+        for current in word_boxes[start : start + MAX_EVIDENCE_SPAN_WORDS]:
+            if current.page != first.page:
+                break
+            if span:
+                first_center = first.y + (first.height / 2)
+                current_center = current.y + (current.height / 2)
+                line_tolerance = max(first.height, current.height) * 1.5
+                if abs(current_center - first_center) > line_tolerance:
+                    break
+            span.append(current)
+            combined += _normalise_evidence_text(current.text)
+            if combined == needle:
+                left = min(box.x for box in span)
+                top = min(box.y for box in span)
+                right = max(box.x + box.width for box in span)
+                bottom = max(box.y + box.height for box in span)
+                return [
+                    EvidenceRegion(
+                        page=first.page,
+                        x=left,
+                        y=top,
+                        width=round(right - left, 6),
+                        height=round(bottom - top, 6),
+                        text=" ".join(box.text for box in span)[:500],
+                    )
+                ]
+            if len(combined) >= len(needle):
+                break
     exact = [box for box in word_boxes if _normalise_evidence_text(box.text) == needle]
     candidates = exact or [
         box
@@ -1268,9 +1300,21 @@ class ExtractionRouter:
         if provider == "local":
             return await finish(await self.local.extract(extraction_upload, document_type))
         if provider == "openai":
-            return await finish(await self.openai.extract(extraction_upload, document_type))
+            try:
+                return await finish(await self.openai.extract(extraction_upload, document_type))
+            except ProviderError:
+                if upload.media_type == "application/pdf":
+                    logger.warning("openai_provider_fallback_to_local_pdf")
+                    return await finish(await self.local.extract(upload, document_type))
+                raise
         if provider == "openrouter":
-            return await finish(await self.openrouter.extract(extraction_upload, document_type))
+            try:
+                return await finish(await self.openrouter.extract(extraction_upload, document_type))
+            except ProviderError:
+                if upload.media_type == "application/pdf":
+                    logger.warning("openrouter_provider_fallback_to_local_pdf")
+                    return await finish(await self.local.extract(upload, document_type))
+                raise
         if provider == "paddle":
             return await finish(await self.paddle.extract(extraction_upload, document_type))
 

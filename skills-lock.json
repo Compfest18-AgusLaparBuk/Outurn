@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "kumo-design": {
+      "source": "cloudflare/kumo",
+      "sourceType": "github",
+      "skillPath": "skills/kumo-design/SKILL.md",
+      "computedHash": "502355490cdc0054dd6ccdd528654928bd94b76c5fc826a215d082be1141f15f"
+    }
+  }
+}
