@@ -43,6 +43,7 @@ services:
     environment:
       APP_ENV: production
       DATABASE_URL: postgresql+psycopg://gateguard:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/gateguard
+      CORS_ORIGINS: ${APP_PUBLIC_ORIGIN:?APP_PUBLIC_ORIGIN is required}
     command: ["python", "-m", "scripts.seed_users"]
     depends_on:
       migrate:
@@ -98,6 +99,7 @@ services:
     environment:
       APP_ENV: production
       DATABASE_URL: postgresql+psycopg://gateguard:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/gateguard
+      CORS_ORIGINS: ${APP_PUBLIC_ORIGIN:?APP_PUBLIC_ORIGIN is required}
       DOCUMENT_STORAGE_ROOT: /data/documents
     command: ["python", "-m", "app.worker"]
     volumes:
