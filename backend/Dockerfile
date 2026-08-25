@@ -11,7 +11,7 @@ WORKDIR /app
 # The upstream image can be published before the mirror metadata catches up;
 # upgrading here keeps OS-level CVE fixes in the production image.
 RUN apt-get update \
-    && apt-get install --yes --only-upgrade util-linux bsdutils \
+    && apt-get install --no-install-recommends --yes --only-upgrade util-linux bsdutils \
     && apt-get dist-upgrade --yes \
     && rm -rf /var/lib/apt/lists/*
 
