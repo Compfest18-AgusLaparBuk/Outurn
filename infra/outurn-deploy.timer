@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Outurn for deployable main commits
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=outurn-deploy.service
+
+[Install]
+WantedBy=timers.target

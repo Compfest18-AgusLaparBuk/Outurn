@@ -1,0 +1,622 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime, time, timedelta
+from functools import lru_cache
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
+
+from app.auth.dependencies import current_user, require_role
+from app.auth.service import (
+    SESSION_COOKIE,
+    authenticate,
+    create_session,
+    require_password,
+    session_hash,
+)
+from app.core.config import get_settings
+from app.core.errors import OuturnError
+from app.domain.models import (
+    AuditEventResponse,
+    DashboardSummary,
+    DocumentType,
+    LoginRequest,
+    OverrideRequest,
+    PaginatedReconciliations,
+    PaginatedShipments,
+    PaginatedWorkQueue,
+    PasswordChangeRequest,
+    ReconciliationResult,
+    ReconciliationStatus,
+    ReleaseDecisionRequest,
+    ReleaseDecisionResponse,
+    ShipmentCreateRequest,
+    ShipmentResponse,
+    ShipmentStatus,
+    UserCreateRequest,
+    UserResponse,
+    UserUpdateRequest,
+    WorkQueueItem,
+    WorkQueueUpdateRequest,
+)
+from app.repositories.reconciliations import ReconciliationRepository, UserRow, user_dict
+from app.services.extraction import ExtractionRouter
+from app.services.file_validation import ensure_distinct_uploads, validate_upload
+from app.services.reconciliation_service import ReconciliationService
+
+router = APIRouter()
+
+_AUDIT_SENSITIVE_KEY_PARTS = (
+    "secret",
+    "token",
+    "password",
+    "credential",
+    "authorization",
+    "api_key",
+    "cookie",
+)
+
+
+def safe_audit_metadata(value: Any, *, depth: int = 0) -> Any:
+    """Render persisted audit metadata without exposing secrets or unbounded payloads."""
+    if depth > 4:
+        return "[truncated]"
+    if isinstance(value, dict):
+        return {
+            str(key): "[redacted]"
+            if any(part in str(key).casefold() for part in _AUDIT_SENSITIVE_KEY_PARTS)
+            else safe_audit_metadata(item, depth=depth + 1)
+            for key, item in list(value.items())[:50]
+        }
+    if isinstance(value, list):
+        return [safe_audit_metadata(item, depth=depth + 1) for item in value[:50]]
+    if isinstance(value, str):
+        return value if len(value) <= 1_000 else f"{value[:1_000]}… [truncated]"
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return str(value)[:1_000]
+
+
+def audit_metadata_for_console(raw_metadata: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(raw_metadata)
+    except json.JSONDecodeError:
+        return {"notice": "Metadata audit tidak dapat dibaca."}
+    safe_value = safe_audit_metadata(parsed)
+    return safe_value if isinstance(safe_value, dict) else {"value": safe_value}
+
+
+@lru_cache
+def get_repository() -> ReconciliationRepository:
+    settings = get_settings()
+    return ReconciliationRepository(
+        settings.database_url, auto_create_schema=settings.app_env.casefold() != "production"
+    )
+
+
+@lru_cache
+def get_service() -> ReconciliationService:
+    settings = get_settings()
+    return ReconciliationService(
+        settings=settings, repository=get_repository(), extractor=ExtractionRouter(settings)
+    )
+
+
+def get_workspace(request: Request, user: UserRow):
+    from app.api.operations import get_operations
+
+    return get_operations().organization_for(user, request.headers.get("x-outurn-organization"))
+
+
+def user_response(user: UserRow) -> UserResponse:
+    return UserResponse.model_validate(user_dict(user))
+
+
+def parse_boundary(value: str | None, *, end: bool = False) -> datetime | None:
+    if not value:
+        return None
+    parsed = datetime.fromisoformat(value)
+    parsed = parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+    return parsed + timedelta(days=1) if end and len(value) == 10 else parsed
+
+
+def readiness_summary() -> dict[str, str]:
+    try:
+        get_repository().ping()
+        database = "healthy"
+    except Exception:
+        database = "unavailable"
+    return {"application": "healthy", "database": database}
+
+
+@router.post("/api/auth/login", response_model=UserResponse)
+def login(body: LoginRequest, request: Request, response: Response):
+    user = authenticate(get_repository(), body.email, body.password)
+    if user is None:
+        attempted_user = get_repository().get_user_by_email(body.email.strip().casefold())
+        if attempted_user is not None:
+            try:
+                workspace = get_workspace(request, attempted_user)
+                get_repository().record_audit(
+                    "auth.login.failure",
+                    "user",
+                    entity_id=attempted_user.id,
+                    actor=attempted_user,
+                    organization_id=workspace.id,
+                    metadata={"email": body.email.strip().casefold()},
+                    request_id=request.state.request_id,
+                )
+            except OuturnError:
+                # Legacy users without a workspace cannot produce a tenant-scoped audit event.
+                pass
+        raise OuturnError(
+            "Email or password is incorrect.", code="INVALID_CREDENTIALS", status_code=401
+        )
+    token = create_session(get_repository(), user.id, get_settings())
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        httponly=True,
+        secure=get_settings().secure_cookies,
+        samesite="lax",
+        max_age=get_settings().session_ttl_seconds,
+        path="/",
+    )
+    get_repository().record_audit(
+        "auth.login.success",
+        "user",
+        entity_id=user.id,
+        actor=user,
+        organization_id=get_workspace(request, user).id,
+        request_id=request.state.request_id,
+    )
+    return user_response(user)
+
+
+@router.post("/api/auth/logout")
+def logout(request: Request, response: Response):
+    token = request.cookies.get(SESSION_COOKIE)
+    user = get_repository().revoke_session(session_hash(token)) if token else None
+    if user:
+        try:
+            workspace = get_workspace(request, user)
+            get_repository().record_audit(
+                "auth.logout",
+                "user",
+                entity_id=user.id,
+                actor=user,
+                organization_id=workspace.id,
+                request_id=request.state.request_id,
+            )
+        except OuturnError:
+            # Session revocation must still succeed for a legacy user with no active workspace.
+            pass
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"status": "ok"}
+
+
+@router.get("/api/auth/me", response_model=UserResponse)
+def me(user: UserRow = Depends(current_user)):
+    return user_response(user)
+
+
+@router.post("/api/auth/password", response_model=UserResponse)
+def change_password(
+    body: PasswordChangeRequest,
+    user: UserRow = Depends(current_user),
+):
+    from app.auth.passwords import verify_password
+
+    if not verify_password(user.password_hash, body.current_password):
+        raise OuturnError(
+            "Current password is incorrect.", code="INVALID_CREDENTIALS", status_code=401
+        )
+    return user_response(
+        get_repository().change_password(user.id, require_password(body.new_password))
+    )
+
+
+@router.post("/api/reconcile", response_model=ReconciliationResult)
+async def reconcile_documents(
+    request: Request,
+    invoice: UploadFile = File(...),
+    packing_list: UploadFile = File(...),
+    delivery_order: UploadFile = File(...),
+    user: UserRow = Depends(current_user),
+):
+    settings = get_settings()
+    safe = {
+        DocumentType.INVOICE: await validate_upload(
+            invoice, settings.max_upload_bytes, settings.max_image_pixels
+        ),
+        DocumentType.PACKING_LIST: await validate_upload(
+            packing_list, settings.max_upload_bytes, settings.max_image_pixels
+        ),
+        DocumentType.DELIVERY_ORDER: await validate_upload(
+            delivery_order, settings.max_upload_bytes, settings.max_image_pixels
+        ),
+    }
+    ensure_distinct_uploads(safe)
+    workspace = get_workspace(request, user)
+    result = await get_service().reconcile_uploads(safe, organization_id=workspace.id)
+    get_repository().record_audit(
+        "reconciliation.created",
+        "reconciliation",
+        entity_id=result.session_id,
+        actor=user,
+        organization_id=workspace.id,
+        metadata={"status": result.status.value, "processing_ms": result.processing_ms},
+        request_id=request.state.request_id,
+    )
+    shipment_document = result.documents.get(DocumentType.DELIVERY_ORDER)
+    shipment_id = (
+        str(shipment_document.shipment_id.value)
+        if shipment_document and shipment_document.shipment_id.value is not None
+        else None
+    )
+    from app.api.operations import get_operations
+
+    get_operations().record_reconciliation_check(
+        organization_id=workspace.id,
+        shipment_id=shipment_id,
+        user=user,
+        result=result,
+    )
+    return result
+
+
+@router.get("/api/reconciliations", response_model=PaginatedReconciliations)
+def list_reconciliations(
+    request: Request,
+    page: int = 1,
+    page_size: int = 25,
+    status: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    overridden: bool | None = None,
+    query: str | None = None,
+    user: UserRow = Depends(current_user),
+):
+    if not 1 <= page <= 100_000 or not 1 <= page_size <= 100:
+        raise OuturnError("Invalid pagination values.", code="VALIDATION_ERROR", status_code=422)
+    if status and status not in {item.value for item in ReconciliationStatus}:
+        raise OuturnError(
+            "Invalid reconciliation status.", code="VALIDATION_ERROR", status_code=422
+        )
+    try:
+        start = parse_boundary(date_from)
+        end = parse_boundary(date_to, end=True)
+    except ValueError as exc:
+        raise OuturnError(
+            "Invalid date filter.", code="VALIDATION_ERROR", status_code=422
+        ) from exc
+    items, total = get_repository().list_reconciliations(
+        page=page,
+        page_size=page_size,
+        status=status,
+        date_from=start,
+        date_to=end,
+        overridden=overridden,
+        query=query,
+        organization_id=get_workspace(request, user).id,
+    )
+    return PaginatedReconciliations(items=items, page=page, page_size=page_size, total=total)
+
+
+@router.get("/api/reconciliations/{session_id}", response_model=ReconciliationResult)
+def get_reconciliation(session_id: str, request: Request, user: UserRow = Depends(current_user)):
+    return get_repository().get(session_id, organization_id=get_workspace(request, user).id)
+
+
+@router.post("/api/reconciliations/{session_id}/override", response_model=ReconciliationResult)
+def override_reconciliation(
+    session_id: str,
+    body: OverrideRequest,
+    request: Request,
+    user: UserRow = Depends(require_role("supervisor", "admin")),
+):
+    return get_repository().override(
+        session_id,
+        body,
+        actor_user=user,
+        request_id=request.state.request_id,
+        organization_id=get_workspace(request, user).id,
+    )
+
+
+@router.get("/api/dashboard/summary", response_model=DashboardSummary)
+def dashboard(request: Request, user: UserRow = Depends(current_user)):
+    today = datetime.now(UTC).date()
+    summary = get_repository().dashboard(
+        datetime.combine(today, time.min, UTC),
+        datetime.combine(today + timedelta(days=1), time.min, UTC),
+        organization_id=get_workspace(request, user).id,
+    )
+    return DashboardSummary(
+        date=today.isoformat(),
+        readiness=readiness_summary(),
+        **summary,
+    )
+
+
+@router.get("/api/shipments", response_model=PaginatedShipments)
+def list_shipments(
+    request: Request,
+    page: int = 1,
+    page_size: int = 25,
+    status: str | None = None,
+    query: str | None = None,
+    user: UserRow = Depends(current_user),
+):
+    if not 1 <= page <= 100_000 or not 1 <= page_size <= 100:
+        raise OuturnError("Invalid pagination values.", code="VALIDATION_ERROR", status_code=422)
+    if status and status not in {item.value for item in ShipmentStatus}:
+        raise OuturnError("Invalid shipment status.", code="VALIDATION_ERROR", status_code=422)
+    items, total = get_repository().list_shipments(
+        page=page,
+        page_size=page_size,
+        status=status,
+        query=query,
+        organization_id=get_workspace(request, user).id,
+    )
+    return PaginatedShipments(items=items, page=page, page_size=page_size, total=total)
+
+
+@router.post("/api/shipments", response_model=ShipmentResponse, status_code=201)
+def create_shipment(
+    body: ShipmentCreateRequest,
+    request: Request,
+    user: UserRow = Depends(current_user),
+):
+    workspace = get_workspace(request, user)
+    shipment = get_repository().create_shipment(
+        organization_id=workspace.id,
+        payload=body.model_dump(),
+        actor=user,
+    )
+    get_repository().record_audit(
+        "shipment.created",
+        "shipment",
+        entity_id=shipment["id"],
+        actor=user,
+        organization_id=workspace.id,
+        metadata={"status": shipment["status"]},
+        request_id=request.state.request_id,
+    )
+    return ShipmentResponse.model_validate(shipment)
+
+
+@router.get("/api/shipments/{shipment_id}", response_model=ShipmentResponse)
+def get_shipment(shipment_id: str, request: Request, user: UserRow = Depends(current_user)):
+    return ShipmentResponse.model_validate(
+        get_repository().get_shipment(shipment_id, organization_id=get_workspace(request, user).id)
+    )
+
+
+@router.get("/api/work-queue", response_model=PaginatedWorkQueue)
+def work_queue(
+    request: Request,
+    page: int = 1,
+    page_size: int = 25,
+    status: str | None = None,
+    priority: str | None = None,
+    assignee: str | None = None,
+    user: UserRow = Depends(current_user),
+):
+    if not 1 <= page <= 100_000 or not 1 <= page_size <= 100:
+        raise OuturnError("Invalid pagination values.", code="VALIDATION_ERROR", status_code=422)
+    items, total = get_repository().list_work_queue(
+        page=page,
+        page_size=page_size,
+        status=status,
+        priority=priority,
+        assignee=assignee,
+        organization_id=get_workspace(request, user).id,
+    )
+    return PaginatedWorkQueue(items=items, page=page, page_size=page_size, total=total)
+
+
+@router.patch("/api/work-queue/{task_id}", response_model=WorkQueueItem)
+def update_work_queue(
+    task_id: str,
+    body: WorkQueueUpdateRequest,
+    request: Request,
+    user: UserRow = Depends(current_user),
+):
+    item = get_repository().update_work_task(
+        task_id,
+        status=body.status.value,
+        actor=user,
+        organization_id=get_workspace(request, user).id,
+    )
+    get_repository().record_audit(
+        "work_queue.updated",
+        "review_task",
+        entity_id=task_id,
+        actor=user,
+        organization_id=get_workspace(request, user).id,
+        metadata={"status": body.status.value},
+        request_id=request.state.request_id,
+    )
+    return WorkQueueItem.model_validate(item)
+
+
+@router.post(
+    "/api/shipments/{shipment_id}/release-decision", response_model=ReleaseDecisionResponse
+)
+def release_decision(
+    shipment_id: str,
+    body: ReleaseDecisionRequest,
+    request: Request,
+    user: UserRow = Depends(require_role("supervisor", "admin")),
+):
+    shipment, decided_at = get_repository().decide_release(
+        shipment_id,
+        decision=body.decision,
+        reason=body.reason,
+        actor=user,
+        organization_id=get_workspace(request, user).id,
+    )
+    get_repository().record_audit(
+        "shipment.release_decision",
+        "shipment",
+        entity_id=shipment_id,
+        actor=user,
+        organization_id=get_workspace(request, user).id,
+        metadata={"decision": body.decision, "reason": body.reason},
+        request_id=request.state.request_id,
+    )
+    return ReleaseDecisionResponse(
+        shipment=shipment,
+        decision=body.decision,
+        reason=body.reason,
+        decided_by=user.display_name,
+        decided_at=decided_at,
+    )
+
+
+@router.get("/api/audit", response_model=list[AuditEventResponse])
+def audit(request: Request, user: UserRow = Depends(require_role("admin", "supervisor"))):
+    return [
+        AuditEventResponse(
+            id=row.id,
+            actor_user_id=row.actor_user_id,
+            actor_service_account_id=row.actor_service_account_id,
+            actor_type=row.actor_type,
+            actor_id=row.actor_id,
+            actor_display_name=row.actor_display_name,
+            event_type=row.event_type,
+            entity_type=row.entity_type,
+            entity_id=row.entity_id,
+            metadata=audit_metadata_for_console(row.metadata_json),
+            request_id=row.request_id,
+            created_at=row.created_at,
+        )
+        for row in get_repository().list_audit(organization_id=get_workspace(request, user).id)
+    ]
+
+
+@router.get("/api/monitoring")
+def monitoring(request: Request, user: UserRow = Depends(current_user)):
+    settings = get_settings()
+    volume = get_repository().dashboard(
+        datetime.now(UTC) - timedelta(days=1),
+        datetime.now(UTC),
+        organization_id=get_workspace(request, user).id,
+    )
+    volume.pop("recent", None)
+    return {
+        **readiness_summary(),
+        "version": settings.app_version,
+        "provider_configured": settings.extraction_provider == "local"
+        or bool(settings.openai_api_key)
+        or bool(settings.openrouter_api_key)
+        or settings.extraction_provider == "paddle",
+        "limits": {
+            "max_upload_bytes": settings.max_upload_bytes,
+            "max_pdf_pages": settings.max_pdf_pages,
+        },
+        "volume": volume,
+    }
+
+
+@router.get("/api/users", response_model=list[UserResponse])
+def users(
+    request: Request,
+    actor: UserRow = Depends(require_role("admin")),
+):
+    workspace = get_workspace(request, actor)
+    return [
+        user_response(user)
+        for user in get_repository().list_users(organization_id=workspace.id)
+    ]
+
+
+@router.post("/api/users", response_model=UserResponse, status_code=201)
+def create_user(
+    body: UserCreateRequest,
+    request: Request,
+    actor: UserRow = Depends(
+        require_role(
+            "admin",
+        )
+    ),
+):
+    if body.role.value == "admin":
+        raise OuturnError(
+            "Administrator accounts are provisioned only during workspace setup.",
+            code="ADMIN_ROLE_RESERVED",
+            status_code=422,
+        )
+    workspace = get_workspace(request, actor)
+    user = get_repository().create_user(
+        email=body.email,
+        display_name=body.display_name,
+        password_hash=require_password(body.password),
+        role=body.role.value,
+        organization_id=workspace.id,
+    )
+    get_repository().record_audit(
+        "user.created",
+        "user",
+        entity_id=user.id,
+        actor=actor,
+        organization_id=workspace.id,
+        metadata={"role": user.role},
+        request_id=request.state.request_id,
+    )
+    return user_response(user)
+
+
+@router.patch("/api/users/{user_id}", response_model=UserResponse)
+def update_user(
+    user_id: str,
+    body: UserUpdateRequest,
+    request: Request,
+    actor: UserRow = Depends(
+        require_role(
+            "admin",
+        )
+    ),
+):
+    if body.role and body.role.value == "admin":
+        raise OuturnError(
+            "Administrator accounts are provisioned only during workspace setup.",
+            code="ADMIN_ROLE_RESERVED",
+            status_code=422,
+        )
+    workspace = get_workspace(request, actor)
+    user = get_repository().update_user(
+        user_id,
+        organization_id=workspace.id,
+        role=body.role.value if body.role else None,
+        active=body.active,
+    )
+    get_repository().record_audit(
+        "user.updated",
+        "user",
+        entity_id=user.id,
+        actor=actor,
+        organization_id=workspace.id,
+        metadata={"role": user.role, "active": user.active},
+        request_id=request.state.request_id,
+    )
+    return user_response(user)
+
+
+@router.get("/api/runtime")
+def runtime(_: UserRow = Depends(current_user)):
+    settings = get_settings()
+    return {
+        "environment": settings.app_env,
+        "extraction_provider": settings.extraction_provider,
+        "provider_configured": settings.extraction_provider == "local"
+        or bool(settings.openai_api_key)
+        or bool(settings.openrouter_api_key)
+        or settings.extraction_provider == "paddle",
+        "critical_confidence_threshold": settings.critical_confidence_threshold,
+        "max_upload_bytes": settings.max_upload_bytes,
+        "max_pdf_pages": settings.max_pdf_pages,
+        "max_image_pixels": settings.max_image_pixels,
+    }

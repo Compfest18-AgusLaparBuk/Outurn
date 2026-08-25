@@ -1,0 +1,90 @@
+from __future__ import annotations
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.api.operations import router as operations_router
+from app.api.routes import get_repository, router
+from app.core.config import get_settings
+from app.core.errors import OuturnError
+from app.core.logging import configure_logging
+from app.core.security import install_security_middleware
+
+configure_logging()
+settings = get_settings()
+
+app = FastAPI(
+    title="Outurn API",
+    version="0.1.0",
+    docs_url="/docs" if settings.app_env != "production" else None,
+    redoc_url=None,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Content-Type",
+        "X-API-Key",
+        "X-Request-ID",
+        "X-Outurn-Organization",
+        "Idempotency-Key",
+    ],
+)
+
+install_security_middleware(app, settings)
+app.include_router(router)
+app.include_router(operations_router)
+
+
+@app.exception_handler(OuturnError)
+async def outurn_error(request: Request, exc: OuturnError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": exc.code,
+                "message": exc.safe_message,
+                "request_id": getattr(request.state, "request_id", None),
+            }
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "The request did not match the API contract.",
+                "request_id": getattr(request.state, "request_id", None),
+                "details": [
+                    {"location": list(err["loc"]), "message": err["msg"]} for err in exc.errors()
+                ],
+            }
+        },
+    )
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readyz():
+    # Execute a real query so readiness fails if a cached repository loses DB connectivity.
+    get_repository().ping()
+    return {"status": "ready"}
+
+
+@app.get("/api/health/ready")
+def api_readyz():
+    """Compatibility readiness path used by deployment smoke checks."""
+    return readyz()

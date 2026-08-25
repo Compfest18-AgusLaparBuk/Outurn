@@ -1,0 +1,268 @@
+/*
+ * Kumo Button renders children inside a `span.contents` wrapper. These rules
+ * preserve the compact Cloudflare command-palette pattern: one medium label
+ * above one subtle metadata line, rather than two inline text fragments.
+ */
+.search-result {
+  min-height: 48px !important;
+  padding-block: 7px !important;
+  font-weight: 400 !important;
+}
+
+/* Undo the legacy structural selector: Kumo's wrapper must not occupy the icon grid column. */
+.search-result > .contents {
+  display: contents !important;
+}
+
+.search-result .contents > .search-result__copy {
+  display: flex !important;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.search-result__label,
+.search-result__group {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result__label {
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.search-result__group {
+  color: var(--app-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+/* Kelola: explicit semantic hierarchy instead of strong tags in links and tables. */
+.settings-card__copy {
+  min-width: 0;
+}
+
+.settings-card .settings-card__title {
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.settings-card .settings-card__description {
+  margin-top: 3px;
+  color: var(--app-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.settings-card .settings-card__chevron {
+  flex: 0 0 auto;
+  color: var(--app-muted);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.table-cell-primary,
+.empty-state__title {
+  display: block;
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.table-cell-primary + small {
+  display: block;
+  margin-top: 2px;
+  color: var(--app-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.empty-state__title + span {
+  font-weight: 400;
+}
+
+.settings-context-rail dt,
+.settings-context-rail dd {
+  font-weight: 400;
+}
+
+.settings-context-rail dd {
+  color: var(--app-text);
+}
+
+/* Console navigation and workspace form retain a quiet, legible Cloudflare hierarchy. */
+.console-sidebar__label {
+  color: var(--app-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+/* Kumo owns the collapse geometry and easing. App chrome only supplies the
+ * Cloudflare-sized tokens, so the icon rail and tooltip state stay aligned. */
+.console-shell__layout {
+  --sidebar-width: var(--cf-shell-sidebar);
+  --sidebar-width-icon: var(--cf-shell-sidebar-collapsed);
+}
+
+.console-shell .console-sidebar[data-kumo-component="Sidebar"] {
+  --sidebar-width: var(--cf-shell-sidebar);
+  --sidebar-width-icon: var(--cf-shell-sidebar-collapsed);
+  transition-duration: 250ms;
+  transition-timing-function: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+.form-grid label > [role="combobox"] {
+  width: 100%;
+}
+
+/* Every filter surface uses the same Kumo control rhythm and a stable select
+ * width, so labels do not jump as options or result counts change. */
+.filter-bar,
+.operations-toolbar,
+.cf-job-toolbar,
+.cf-reference-toolbar,
+.cf-audit-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cf-space-2);
+}
+
+.filter-bar [data-kumo-component="Select"][data-kumo-part="trigger"],
+.operations-toolbar [data-kumo-component="Select"][data-kumo-part="trigger"],
+.cf-job-toolbar [data-kumo-component="Select"][data-kumo-part="trigger"],
+.cf-reference-toolbar [data-kumo-component="Select"][data-kumo-part="trigger"],
+.cf-audit-filter-bar [data-kumo-component="Select"][data-kumo-part="trigger"] {
+  width: 168px;
+  min-width: 168px;
+}
+
+.filter-bar .operations-search,
+.operations-toolbar .operations-search,
+.cf-job-toolbar .cf-job-search,
+.cf-reference-toolbar .cf-job-search,
+.cf-audit-filter-bar .cf-audit-search {
+  min-width: min(300px, 100%);
+  flex: 1 1 300px;
+}
+
+/* Kumo owns the shell geometry. Keep application chrome as content inside the
+ * provider so collapse, tooltip, and mobile-sheet behavior stay consistent. */
+.console-shell__layout[data-sidebar-wrapper] {
+  min-height: 100svh;
+  align-items: stretch;
+}
+
+.console-shell .console-sidebar:not([data-mobile="true"]) {
+  --sidebar-width: var(--cf-shell-sidebar);
+  --sidebar-width-icon: var(--cf-shell-sidebar-collapsed);
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  height: 100svh;
+  max-height: none;
+  overflow: visible;
+  border-right: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.console-shell .console-sidebar__content {
+  background: var(--cf-surface);
+}
+
+.console-shell .console-main,
+.console-shell[data-sidebar-collapsed="true"] .console-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin-left: 0 !important;
+}
+
+.console-shell .console-sidebar__nav {
+  min-height: 0;
+}
+
+.console-shell[data-sidebar-collapsed="true"] .console-sidebar__brand {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 0;
+}
+
+.console-shell[data-sidebar-collapsed="true"] .console-sidebar__brand .console-brand-mark {
+  display: none;
+}
+
+.console-shell[data-sidebar-collapsed="true"] .console-sidebar__toggle {
+  margin-left: 0;
+}
+
+.cf-app-select,
+.cf-app-combobox {
+  min-width: 0;
+}
+
+.cf-filter-bar [data-kumo-component="Select"][data-kumo-part="trigger"],
+.cf-filter-bar [data-kumo-component="Combobox"][data-kumo-part="trigger"],
+.cf-filter-bar [data-kumo-component="Combobox"] [role="combobox"] {
+  width: 168px;
+  min-width: 168px;
+}
+
+.cf-filter-bar .cf-app-select,
+.cf-filter-bar .cf-app-combobox {
+  flex: 0 0 168px;
+}
+
+.cf-state-notice__title-inline {
+  color: var(--cf-text);
+  font-weight: var(--cf-weight-medium);
+}
+
+.cf-notification-list__title {
+  color: var(--cf-text);
+  font-size: var(--cf-text-label);
+  font-weight: var(--cf-weight-medium);
+}
+
+.cf-notification-list__read-label {
+  align-self: center;
+  color: var(--cf-text-faint);
+  font-size: var(--cf-text-metadata);
+  white-space: nowrap;
+}
+
+.cf-settings-notifications-surface {
+  max-width: 760px;
+  overflow: hidden;
+  padding: 0;
+}
+
+@media (max-width: 900px) {
+  .console-shell .console-sidebar[data-mobile="true"] {
+    width: min(304px, calc(100vw - 48px)) !important;
+    max-height: none;
+    overflow: hidden;
+    box-shadow: var(--cf-shadow-overlay);
+  }
+
+  .console-shell__layout[data-state="expanded"] .console-sidebar[data-mobile="true"] {
+    transform: translateX(0) !important;
+  }
+}

@@ -1,0 +1,22 @@
+fastapi==0.139.0
+uvicorn[standard]>=0.35,<1
+pydantic>=2.13,<3
+pydantic-settings>=2.14,<3
+sqlalchemy==2.0.51
+python-multipart>=0.0.20,<1
+httpx>=0.28,<1
+rapidfuzz>=3.14,<4
+pypdf>=6,<7
+pdfplumber>=0.11,<1
+opencv-python-headless>=4.10,<5
+pillow>=11,<13
+psycopg[binary]>=3.2,<4
+alembic>=1.18,<2
+argon2-cffi>=25.1,<26
+cryptography>=50,<51
+
+# Explicit runtime patches for packages preinstalled or vendored by the Python base image.
+# Setuptools 84+ vendors patched jaraco.context and wheel metadata for the image scan.
+setuptools>=84
+jaraco.context>=6.1.0
+wheel>=0.46.2
