@@ -7,6 +7,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Refresh the slim image's Debian security packages before shipping the runtime.
+# The upstream image can be published before the mirror metadata catches up;
+# upgrading here keeps OS-level CVE fixes in the production image.
+RUN apt-get update \
+    && apt-get dist-upgrade --yes \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system gateguard \
     && useradd --system --gid gateguard --home-dir /nonexistent gateguard
 
