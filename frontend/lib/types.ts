@@ -3,7 +3,8 @@ export type ReconciliationStatus = "CLEAR" | "REVIEW" | "HOLD";
 export type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type UserRole = "operator" | "supervisor" | "admin";
 export type ShipmentStatus = "DRAFT" | "DOCUMENTS_REQUIRED" | "REVIEW_REQUIRED" | "HOLD" | "RELEASE_AUTHORIZED" | "RELEASE_INVALIDATED" | "DISPATCHED" | "CLOSED";
-export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type GeoClassification = "GEOGRAPHIC_MATCH" | "NEARBY_REVIEW" | "DESTINATION_MISMATCH" | "GEOCODING_UNCERTAIN";
 export type WorkQueueStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";
 
 export interface CurrentUser {
@@ -97,6 +98,52 @@ export interface ReconciliationResult {
   mismatches: Mismatch[];
   audit: AuditState;
   processing_ms: number;
+  context?: ShipmentAssuranceContext | null;
+  geographic?: GeographicValidation | null;
+  risk?: RiskAssessment | null;
+  explanation?: RootCauseExplanation | null;
+}
+
+export interface ShipmentAssuranceContext {
+  reference: string;
+  origin?: string | null;
+  expected_destination?: string | null;
+  dispatch_date?: string | null;
+  shipping_mode?: string | null;
+}
+export interface GeoPoint {
+  latitude: number;
+  longitude: number;
+  label: string;
+  query: string;
+}
+export interface GeographicValidation {
+  classification: GeoClassification;
+  message: string;
+  origin?: GeoPoint | null;
+  expected_destination?: GeoPoint | null;
+  document_destinations: Partial<Record<DocumentType, GeoPoint>>;
+  distance_km?: number | null;
+  geocoder: string;
+}
+export interface RiskContributor {
+  code: string;
+  label: string;
+  points: number;
+  detail: string;
+}
+export interface RiskAssessment {
+  score: number;
+  level: RiskLevel;
+  contributors: RiskContributor[];
+  method: string;
+}
+export interface RootCauseExplanation {
+  summary: string;
+  possible_causes: string[];
+  evidence_basis: string[];
+  corrective_actions: string[];
+  provider: string;
 }
 
 export interface HistoryResponse { items: ReconciliationResult[]; page: number; page_size: number; total: number; }

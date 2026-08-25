@@ -6,6 +6,7 @@ import type {
   MonitoringSummary,
   ReconciliationResult,
   ReconciliationStatus,
+  ShipmentAssuranceContext,
   ShipmentCase,
   ShipmentResponse,
   WorkQueueResponse,
@@ -34,15 +35,34 @@ async function parse<T>(response: Response): Promise<T> {
 
 export async function reconcile(
   files: Record<string, File>,
+  context: ShipmentAssuranceContext,
 ): Promise<ReconciliationResult> {
   const form = new FormData();
   form.set("delivery_order", files.delivery_order);
   form.set("invoice", files.invoice);
   form.set("packing_list", files.packing_list);
+  form.set("shipment_reference", context.reference);
+  if (context.origin) form.set("origin", context.origin);
+  if (context.expected_destination) form.set("expected_destination", context.expected_destination);
+  if (context.dispatch_date) form.set("dispatch_date", context.dispatch_date);
+  if (context.shipping_mode) form.set("shipping_mode", context.shipping_mode);
   return parse(
     await fetch("/api/reconcile", {
       method: "POST",
       body: form,
+    }),
+  );
+}
+
+export async function acknowledgeException(
+  sessionId: string,
+  reason: string,
+): Promise<ReconciliationResult> {
+  return parse(
+    await fetch(`/api/reconciliations/${encodeURIComponent(sessionId)}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
     }),
   );
 }

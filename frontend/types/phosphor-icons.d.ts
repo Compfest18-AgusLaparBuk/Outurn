@@ -73,6 +73,7 @@ declare module "@phosphor-icons/react" {
   export const MagnifyingGlassIcon: Icon;
   export const MagnifyingGlassMinusIcon: Icon;
   export const MagnifyingGlassPlusIcon: Icon;
+  export const MapPinIcon: Icon;
   export const PackageIcon: Icon;
   export const PlugsConnectedIcon: Icon;
   export const PlayIcon: Icon;
@@ -85,6 +86,7 @@ declare module "@phosphor-icons/react" {
   export const SpinnerGapIcon: Icon;
   export const StorefrontIcon: Icon;
   export const UserListIcon: Icon;
+  export const UploadSimpleIcon: Icon;
   export const UsersIcon: Icon;
   export const UsersThreeIcon: Icon;
   export const WarningIcon: Icon;
