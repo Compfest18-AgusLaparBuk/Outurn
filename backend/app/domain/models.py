@@ -48,6 +48,13 @@ class RiskLevel(StrEnum):
     CRITICAL = "CRITICAL"
 
 
+class GeoClassification(StrEnum):
+    GEOGRAPHIC_MATCH = "GEOGRAPHIC_MATCH"
+    NEARBY_REVIEW = "NEARBY_REVIEW"
+    DESTINATION_MISMATCH = "DESTINATION_MISMATCH"
+    GEOCODING_UNCERTAIN = "GEOCODING_UNCERTAIN"
+
+
 class WorkQueueStatus(StrEnum):
     OPEN = "OPEN"
     IN_PROGRESS = "IN_PROGRESS"
@@ -119,6 +126,60 @@ class ShipmentDocument(BaseModel):
     preprocessing_operations: list[str] = Field(default_factory=list, max_length=8)
 
 
+class ShipmentAssuranceContext(BaseModel):
+    reference: str = Field(min_length=2, max_length=120)
+    origin: str | None = Field(default=None, max_length=160)
+    expected_destination: str | None = Field(default=None, max_length=160)
+    dispatch_date: str | None = Field(default=None, max_length=40)
+    shipping_mode: str | None = Field(default=None, max_length=40)
+
+    @field_validator(
+        "reference", "origin", "expected_destination", "dispatch_date", "shipping_mode"
+    )
+    @classmethod
+    def clean_context_text(cls, value: str | None) -> str | None:
+        return " ".join(value.strip().split()) if value else value
+
+
+class GeoPoint(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    label: str = Field(max_length=300)
+    query: str = Field(max_length=300)
+
+
+class GeographicValidation(BaseModel):
+    classification: GeoClassification
+    message: str
+    origin: GeoPoint | None = None
+    expected_destination: GeoPoint | None = None
+    document_destinations: dict[DocumentType, GeoPoint] = Field(default_factory=dict)
+    distance_km: float | None = Field(default=None, ge=0)
+    geocoder: str = "Nominatim"
+
+
+class RiskContributor(BaseModel):
+    code: str
+    label: str
+    points: int = Field(ge=0, le=100)
+    detail: str
+
+
+class RiskAssessment(BaseModel):
+    score: int = Field(ge=0, le=100)
+    level: RiskLevel
+    contributors: list[RiskContributor] = Field(default_factory=list)
+    method: str = "Deterministic rule-based score; AI evidence is not decision authority."
+
+
+class RootCauseExplanation(BaseModel):
+    summary: str
+    possible_causes: list[str] = Field(default_factory=list)
+    evidence_basis: list[str] = Field(default_factory=list)
+    corrective_actions: list[str] = Field(default_factory=list)
+    provider: str = "evidence-grounded-rules"
+
+
 class EvidenceValue(BaseModel):
     document_type: DocumentType
     field: str
@@ -169,6 +230,10 @@ class ReconciliationResult(BaseModel):
     mismatches: list[Mismatch]
     audit: AuditState
     processing_ms: int = 0
+    context: ShipmentAssuranceContext | None = None
+    geographic: GeographicValidation | None = None
+    risk: RiskAssessment | None = None
+    explanation: RootCauseExplanation | None = None
 
     @computed_field
     @property
@@ -214,6 +279,18 @@ class OverrideRequest(BaseModel):
         if len(encoded) > 16 * 1024:
             raise ValueError("corrected_fields exceeds the 16 KB audit limit")
         return self
+
+
+class ResolutionRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def clean_resolution_reason(cls, value: str) -> str:
+        cleaned = " ".join(value.strip().split())
+        if len(cleaned) < 5:
+            raise ValueError("Resolution reason is required")
+        return cleaned
 
 
 class LoginRequest(BaseModel):

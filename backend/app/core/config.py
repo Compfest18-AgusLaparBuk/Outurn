@@ -55,11 +55,10 @@ class Settings(BaseSettings):
     extraction_provider: Literal["auto", "local", "openai", "openrouter", "paddle"] = "auto"
     critical_confidence_threshold: float = 0.75
     max_ai_concurrency: int = 4
-    worker_poll_interval_seconds: float = 2.0
-    worker_heartbeat_interval_seconds: float = 10.0
 
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5-mini"
+    openai_model: str = "gpt-4o-2024-08-06"
+    ai_finetuned_model_id: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
     openai_timeout_seconds: float = 45.0
     openrouter_api_key: str | None = None
@@ -67,6 +66,10 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_timeout_seconds: float = 45.0
     paddle_device: str = "cpu"
+
+    geocoding_base_url: str = "https://nominatim.openstreetmap.org"
+    geocoding_user_agent: str = "Outurn/0.1 (shipment-assurance-demo)"
+    geocoding_timeout_seconds: float = 8.0
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -55,6 +55,9 @@ def test_text_pdf_triplet_reconciles_clear():
     assert result["status"] == "CLEAR"
     assert result["mismatches"] == []
     assert result["documents"]["invoice"]["items"][0]["sku"]["value"] == "SKU-001"
+    assert result["risk"]["score"] == 0
+    assert result["geographic"]["classification"] == "GEOGRAPHIC_MATCH"
+    assert result["explanation"]["provider"] == "evidence-grounded-rules"
 
 
 def test_text_pdf_quantity_conflict_holds():

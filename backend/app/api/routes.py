@@ -5,7 +5,7 @@ from datetime import UTC, datetime, time, timedelta
 from functools import lru_cache
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
 
 from app.auth.dependencies import current_user, require_role
 from app.auth.service import (
@@ -31,6 +31,8 @@ from app.domain.models import (
     ReconciliationStatus,
     ReleaseDecisionRequest,
     ReleaseDecisionResponse,
+    ResolutionRequest,
+    ShipmentAssuranceContext,
     ShipmentCreateRequest,
     ShipmentResponse,
     ShipmentStatus,
@@ -43,6 +45,7 @@ from app.domain.models import (
 from app.repositories.reconciliations import ReconciliationRepository, UserRow, user_dict
 from app.services.extraction import ExtractionRouter
 from app.services.file_validation import ensure_distinct_uploads, validate_upload
+from app.services.geocoding import NominatimGeocoder
 from app.services.reconciliation_service import ReconciliationService
 
 router = APIRouter()
@@ -99,7 +102,10 @@ def get_repository() -> ReconciliationRepository:
 def get_service() -> ReconciliationService:
     settings = get_settings()
     return ReconciliationService(
-        settings=settings, repository=get_repository(), extractor=ExtractionRouter(settings)
+        settings=settings,
+        repository=get_repository(),
+        extractor=ExtractionRouter(settings),
+        geocoder=NominatimGeocoder(settings),
     )
 
 
@@ -223,6 +229,11 @@ async def reconcile_documents(
     invoice: UploadFile = File(...),
     packing_list: UploadFile = File(...),
     delivery_order: UploadFile = File(...),
+    shipment_reference: str | None = Form(None),
+    origin: str | None = Form(None),
+    expected_destination: str | None = Form(None),
+    dispatch_date: str | None = Form(None),
+    shipping_mode: str | None = Form(None),
     user: UserRow = Depends(current_user),
 ):
     settings = get_settings()
@@ -239,7 +250,16 @@ async def reconcile_documents(
     }
     ensure_distinct_uploads(safe)
     workspace = get_workspace(request, user)
-    result = await get_service().reconcile_uploads(safe, organization_id=workspace.id)
+    context = ShipmentAssuranceContext(
+        reference=(shipment_reference or "UNSPECIFIED").strip(),
+        origin=origin,
+        expected_destination=expected_destination,
+        dispatch_date=dispatch_date,
+        shipping_mode=shipping_mode,
+    )
+    result = await get_service().reconcile_uploads(
+        safe, organization_id=workspace.id, context=context
+    )
     get_repository().record_audit(
         "reconciliation.created",
         "reconciliation",
@@ -323,6 +343,28 @@ def override_reconciliation(
         request_id=request.state.request_id,
         organization_id=get_workspace(request, user).id,
     )
+
+
+@router.post("/api/reconciliations/{session_id}/resolve", response_model=ReconciliationResult)
+def resolve_reconciliation(
+    session_id: str,
+    body: ResolutionRequest,
+    request: Request,
+    user: UserRow = Depends(current_user),
+):
+    result = get_repository().get(
+        session_id, organization_id=get_workspace(request, user).id
+    )
+    get_repository().record_audit(
+        "reconciliation.exception_acknowledged",
+        "reconciliation",
+        entity_id=session_id,
+        actor=user,
+        organization_id=get_workspace(request, user).id,
+        metadata={"reason": body.reason, "system_decision": result.status.value},
+        request_id=request.state.request_id,
+    )
+    return result
 
 
 @router.get("/api/dashboard/summary", response_model=DashboardSummary)

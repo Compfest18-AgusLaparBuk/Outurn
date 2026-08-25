@@ -588,7 +588,7 @@ class OpenAIExtractor(Extractor):
         else:
             user_content = [{"type": "text", "text": prompt}, content_item]
         payload = {
-            "model": self.settings.openai_model,
+            "model": self.settings.ai_finetuned_model_id or self.settings.openai_model,
             "messages": [
                 {"role": "developer", "content": extraction_policy},
                 {"role": "user", "content": user_content},
@@ -704,7 +704,11 @@ class OpenAIExtractor(Extractor):
             destination=llm_field("destination"),
             document_total=llm_field("document_total"),
             items=items,
-            extraction_provider=f"openai:{self.settings.openai_model}",
+            extraction_provider=(
+                f"openai-finetuned:{self.settings.ai_finetuned_model_id}"
+                if self.settings.ai_finetuned_model_id
+                else f"openai:{self.settings.openai_model}"
+            ),
         )
         try:
             if upload.media_type == "application/pdf":
