@@ -77,7 +77,7 @@ export default function ProfilePage() {
           </div>
           <div>
             <dt>Ruang kerja</dt>
-            <dd>GateGuard Operations</dd>
+            <dd>Outurn Operations</dd>
           </div>
           <div>
             <dt>Metode autentikasi</dt>

@@ -449,7 +449,7 @@ export async function testWebhook(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       event_type: "webhook.test",
-      payload: { source: "GateGuard operations" },
+      payload: { source: "Outurn operations" },
     }),
   });
 }

@@ -17,7 +17,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [mustChangePassword, query.isError, pathname, router]);
 
   if (query.isPending || query.isError || !query.data) {
-    return <main className="grid min-h-screen place-items-center text-sm text-[var(--subtle)]">Memuat sesi GateGuard…</main>;
+    return <main className="grid min-h-screen place-items-center text-sm text-[var(--subtle)]">Memuat sesi Outurn…</main>;
   }
   return <>{children}</>;
 }

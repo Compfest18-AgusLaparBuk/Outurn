@@ -272,7 +272,7 @@ export default function WebhooksPage() {
               onChange={(event) =>
                 setForm({ ...form, endpoint: event.target.value })
               }
-              placeholder="https://example.com/gateguard"
+              placeholder="https://example.com/outurn"
             />
             <Input
               label="Jenis peristiwa"

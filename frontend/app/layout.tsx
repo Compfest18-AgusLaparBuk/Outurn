@@ -5,11 +5,11 @@ import { Providers } from "@/components/providers";
 
 export const metadata: Metadata = {
   title: {
-    default: "GateGuard — Shipment assurance workspace",
-    template: "%s | GateGuard",
+    default: "Outurn — Shipment assurance workspace",
+    template: "%s | Outurn",
   },
   description: "A controlled workspace for reconciling shipment documents, resolving exceptions, and recording evidence-backed release decisions.",
-  applicationName: "GateGuard",
+  applicationName: "Outurn",
   category: "Business operations",
   robots: {
     index: false,
@@ -17,14 +17,14 @@ export const metadata: Metadata = {
     googleBot: { index: false, follow: false, noimageindex: true },
   },
   openGraph: {
-    title: "GateGuard — Shipment assurance workspace",
+    title: "Outurn — Shipment assurance workspace",
     description: "Evidence-backed shipment document reconciliation and release decisions.",
     type: "website",
-    siteName: "GateGuard",
+    siteName: "Outurn",
   },
   twitter: {
     card: "summary",
-    title: "GateGuard — Shipment assurance workspace",
+    title: "Outurn — Shipment assurance workspace",
     description: "Evidence-backed shipment document reconciliation and release decisions.",
   },
 };

@@ -1,6 +1,6 @@
-# GateGuard
+# Outurn
 
-GateGuard adalah workspace assurance pengiriman untuk memeriksa konsistensi dokumen sebelum barang dilepas. Aplikasi menyatukan case pengiriman, dokumen sumber, pemeriksaan, exception, approval, dan keputusan release ke dalam satu rekam operasional yang dapat ditelusuri.
+Outurn adalah workspace assurance pengiriman untuk memeriksa konsistensi dokumen sebelum barang dilepas. Aplikasi menyatukan case pengiriman, dokumen sumber, pemeriksaan, exception, approval, dan keputusan release ke dalam satu rekam operasional yang dapat ditelusuri.
 
 > **Prinsip utama:** ekstraksi dokumen dapat bersifat probabilistik, sedangkan keputusan `CLEAR`, `REVIEW`, dan `HOLD` harus deterministik, dapat diaudit, dan fail-closed.
 

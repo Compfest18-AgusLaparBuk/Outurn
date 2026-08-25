@@ -38,7 +38,7 @@ export default function SettingsPage() {
         </section>
         <aside className="settings-context-rail" aria-label={t.workspace}>
           <div className="context-rail__eyebrow">{t.workspace}</div>
-          <h2>{String(organization?.name || "GateGuard Operations")}</h2>
+          <h2>{String(organization?.name || "Outurn Operations")}</h2>
           <dl>
             <div><dt>{t.code}</dt><dd>{String(organization?.code || "—")}</dd></div>
             <div><dt>{t.timezone}</dt><dd>{String(organization?.default_timezone || "UTC")}</dd></div>

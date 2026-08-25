@@ -15,9 +15,9 @@ describe("terminology policy", () => {
   });
 
   it("provides complete, natural copy for authentication in both locales", () => {
-    expect(translate("id", "loginTitle")).toBe("Masuk ke GateGuard");
+    expect(translate("id", "loginTitle")).toBe("Masuk ke Outurn");
     expect(translate("id", "signIn")).toBe("Masuk");
-    expect(translate("en", "loginTitle")).toBe("Sign in to GateGuard");
+    expect(translate("en", "loginTitle")).toBe("Sign in to Outurn");
     expect(translate("en", "signIn")).toBe("Sign in");
   });
 

@@ -430,7 +430,7 @@ export default function ConnectionsPage() {
                   }
                 >
                   Token ini hanya ditampilkan sekali dan tidak dapat dipulihkan
-                  dari GateGuard setelah halaman ditutup.
+                  dari Outurn setelah halaman ditutup.
                   <span className="cf-one-time-token mono">{token}</span>
                 </StateNotice>
               ) : null}

@@ -84,7 +84,7 @@ function PublishDialog({
             <Dialog.Title>Publish versi immutable?</Dialog.Title>
             <Dialog.Description>
               Versi {pack.version} akan menjadi PUBLISHED dan tidak dapat diubah
-              melalui GateGuard.
+              melalui Outurn.
             </Dialog.Description>
           </div>
         </div>

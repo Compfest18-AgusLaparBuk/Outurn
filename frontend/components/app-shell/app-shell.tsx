@@ -1,26 +1,20 @@
 "use client";
 
 import {
-  ActivityIcon as Activity,
-  ArchiveIcon as Archive,
   CaretDownIcon as CaretDown,
   CaretRightIcon as CaretRight,
-  ChartLineIcon as ChartLine,
-  ClockCounterClockwiseIcon as ClockCounterClockwise,
   FileTextIcon as FileText,
   GearIcon as Gear,
   HouseIcon as House,
-  ListChecksIcon as ListChecks,
   MagnifyingGlassIcon as MagnifyingGlass,
   PackageIcon as Package,
   SignOutIcon as SignOut,
   SidebarSimpleIcon as SidebarSimple,
   ShieldCheckIcon as ShieldCheck,
-  StorefrontIcon as Storefront,
   UsersIcon as Users,
   XIcon as X,
 } from "@phosphor-icons/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -32,6 +26,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { CloudflareLogo } from "@cloudflare/kumo/components/cloudflare-logo";
 import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
 import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { Input } from "@cloudflare/kumo/components/input";
@@ -45,11 +40,9 @@ import { hasMinimumRole } from "@/lib/access";
 import {
   fetchGlobalSearch,
   fetchMe,
-  fetchNotifications,
   fetchOrganizations,
   fetchWorkspaceContext,
   logout,
-  markNotificationRead,
 } from "@/lib/api";
 import {
   languageSnapshot,
@@ -65,11 +58,13 @@ const ORGANIZATION_CHANGE_EVENT = "gateguard.organization.change";
 
 const NAVIGATION_KEYS: Record<string, LocaleKey> = {
   Home: "home",
+  Build: "build",
   Overview: "overview",
   Recents: "recents",
   Operations: "operations",
   "Work queue": "workQueue",
   Shipments: "shipments",
+  "New shipment case": "newShipmentCase",
   Documents: "documents",
   Parties: "parties",
   "Products & commodities": "products",
@@ -112,65 +107,23 @@ const groups = [
     items: [
       ["/dashboard", "Overview", House, "operator", "home summary"] as const,
       [
-        "/recents",
-        "Recents",
-        ClockCounterClockwise,
-        "operator",
-        "recently opened",
-      ] as const,
-    ],
-  },
-  {
-    label: "Operations",
-    items: [
-      [
-        "/work-queue",
-        "Work queue",
-        ListChecks,
-        "operator",
-        "open overdue assigned",
-      ] as const,
-      [
         "/shipments",
         "Shipments",
         Package,
         "operator",
-        "shipment cases release",
+        "shipment cases",
       ] as const,
+    ],
+  },
+  {
+    label: "Build",
+    items: [
       [
-        "/documents",
-        "Documents",
-        FileText,
-        "operator",
-        "evidence vault files",
-      ] as const,
-      [
-        "/parties",
-        "Parties",
-        Users,
-        "operator",
-        "shipper consignee carrier",
-      ] as const,
-      [
-        "/products",
-        "Products & commodities",
-        Storefront,
-        "operator",
-        "items sku dangerous goods",
-      ] as const,
-      [
-        "/transport",
-        "Transport",
+        "/shipments/new",
+        "New shipment case",
         Package,
         "operator",
-        "carrier legs equipment",
-      ] as const,
-      [
-        "/releases",
-        "Release decisions",
-        ShieldCheck,
-        "supervisor",
-        "authorize hold invalidate",
+        "create shipment intake",
       ] as const,
     ],
   },
@@ -185,150 +138,11 @@ const groups = [
         "invoice packing list compare",
       ] as const,
       [
-        "/requirements",
-        "Requirements",
-        ListChecks,
-        "operator",
-        "required documents rules",
-      ] as const,
-      [
-        "/assurance",
-        "Assurance checks",
-        ShieldCheck,
-        "operator",
-        "checks evidence status",
-      ] as const,
-      [
         "/exceptions",
         "Exceptions",
-        Activity,
-        "operator",
-        "issues blockers resolve",
-      ] as const,
-      [
-        "/screening",
-        "Party screening",
-        Users,
-        "operator",
-        "screened matches review",
-      ] as const,
-      [
-        "/dangerous-goods",
-        "Dangerous goods",
-        Package,
-        "operator",
-        "un number hazard declaration",
-      ] as const,
-    ],
-  },
-  {
-    label: "Observe",
-    items: [
-      [
-        "/analytics",
-        "Analytics",
-        ChartLine,
-        "operator",
-        "volume decisions exceptions",
-      ] as const,
-      [
-        "/observability",
-        "Observability",
-        Activity,
-        "supervisor",
-        "processing jobs availability",
-      ] as const,
-      [
-        "/audit",
-        "Activity log",
-        Archive,
-        "supervisor",
-        "history events access",
-      ] as const,
-    ],
-  },
-  {
-    label: "Integrate",
-    items: [
-      [
-        "/integrations/connections",
-        "Connections",
-        Storefront,
-        "admin",
-        "configured systems",
-      ] as const,
-      [
-        "/integrations/webhooks",
-        "Webhooks",
-        Activity,
-        "admin",
-        "event delivery",
-      ] as const,
-      [
-        "/integrations/jobs",
-        "Processing jobs",
-        ChartLine,
-        "supervisor",
-        "extraction retries failures",
-      ] as const,
-    ],
-  },
-  {
-    label: "Governance",
-    items: [
-      [
-        "/governance/rule-packs",
-        "Rule packs",
-        ListChecks,
-        "admin",
-        "published safeguards",
-      ] as const,
-      [
-        "/governance/reference-data",
-        "Reference data",
-        Archive,
-        "admin",
-        "countries currencies units",
-      ] as const,
-    ],
-  },
-  {
-    label: "Manage",
-    items: [
-      [
-        "/settings",
-        "Workspace settings",
-        Gear,
-        "operator",
-        "workspace policy",
-      ] as const,
-      [
-        "/settings/people",
-        "People",
-        Users,
-        "admin",
-        "users access sessions",
-      ] as const,
-      [
-        "/settings/roles",
-        "Roles & permissions",
         ShieldCheck,
-        "admin",
-        "permissions matrix",
-      ] as const,
-      [
-        "/settings/security",
-        "Security",
-        ShieldCheck,
-        "admin",
-        "sessions authentication",
-      ] as const,
-      [
-        "/settings/notifications",
-        "Notifications",
-        Activity,
         "operator",
-        "alerts preferences",
+        "resolve shipment discrepancies",
       ] as const,
     ],
   },
@@ -420,12 +234,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     queryFn: fetchOrganizations,
     enabled: Boolean(user),
   });
-  const notifications = useQuery({
-    queryKey: ["notifications"],
-    queryFn: () => fetchNotifications(),
-    enabled: Boolean(user),
-    refetchInterval: 30_000,
-  });
   const collapsed = useSyncExternalStore(
     subscribeToSidebar,
     getSidebarSnapshot,
@@ -481,10 +289,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     enabled: deferredSearch.trim().length > 1 && searchOpen,
   });
   const remoteResults = useMemo(() => remote.data?.items || [], [remote.data]);
-  const readNotification = useMutation({
-    mutationFn: markNotificationRead,
-    onSuccess: () => client.invalidateQueries({ queryKey: ["notifications"] }),
-  });
   const resultCount = navResults.length + remoteResults.length;
 
   useEffect(() => {
@@ -556,11 +360,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     client.clear();
     router.replace("/login");
   }
-  async function openNotification(item: Record<string, unknown>) {
-    const id = String(item.id || "");
-    if (!item.read_at && id) await readNotification.mutateAsync(id);
-    if (item.href) router.push(String(item.href));
-  }
   if (session.isPending)
     return (
       <main className="shell-loading" role="status">
@@ -568,7 +367,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <ShieldCheck size={20} weight="bold" />
         </span>
         <div>
-          <strong>Memuat workspace GateGuard</strong>
+          <strong>Memuat workspace Outurn</strong>
           <p>Menyiapkan data operasional dan akses Anda.</p>
           <Loader size="sm" aria-label="Memuat workspace" />
         </div>
@@ -582,7 +381,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </span>
         <div>
           <strong>Sesi tidak tersedia</strong>
-          <p>Silakan masuk kembali untuk membuka workspace GateGuard.</p>
+          <p>Silakan masuk kembali untuk membuka workspace Outurn.</p>
         </div>
       </main>
     );
@@ -604,9 +403,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         >
           <Sidebar.Header className="console-sidebar__brand">
             <span className="console-brand-mark">
-              <ShieldCheck size={20} weight="bold" />
+              <CloudflareLogo variant="glyph" color="color" aria-hidden="true" />
             </span>
-            <span className="console-brand-name">GateGuard</span>
+            <span className="console-brand-name">Outurn</span>
             <SidebarControl
               collapsedLabel="Buka navigasi"
               expandedLabel="Perkecil navigasi"
@@ -627,7 +426,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         (item) => item.id === selectedOrganizationId,
                       )?.name ||
                         organizations.data?.items[0]?.name ||
-                        "GateGuard Operations",
+                        "Outurn Operations",
                     )}
                   </strong>
                   <small>{t("organizationWorkspace")}</small>
@@ -660,16 +459,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="console-search console-search--sidebar"
             icon={MagnifyingGlass}
             onClick={openSearch}
-            aria-label={t("searchGateGuard")}
+            aria-label={t("searchOuturn")}
           >
             <span className="console-search__label">
-              {t("searchGateGuard")}
+              {t("searchOuturn")}
             </span>
             <kbd>Ctrl K</kbd>
           </Button>
           <Sidebar.Content
             className="console-sidebar__nav"
-            aria-label="Navigasi GateGuard"
+            aria-label="Navigasi Outurn"
           >
             {groups.map((group) => {
               const visible = group.items.filter(([, , , minimum]) =>
@@ -745,12 +544,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <DropdownMenu.LinkItem href="/change-password" icon={Gear}>
                     Ganti password
                   </DropdownMenu.LinkItem>
-                  <DropdownMenu.LinkItem
-                    href="/settings/notifications"
-                    icon={Activity}
-                  >
-                    Notifikasi
-                  </DropdownMenu.LinkItem>
                   <DropdownMenu.Separator />
                   <DropdownMenu.Item
                     icon={SignOut}
@@ -773,71 +566,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="console-mobile-toggle"
               />
               <div className="console-breadcrumb">
-                <span>GateGuard</span>
+                <span>Outurn</span>
                 <CaretRight size={14} />
                 <strong>{activeLabel(pathname, language)}</strong>
               </div>
             </div>
             <div className="console-topbar__actions">
-              <div className="notification-wrap">
-                <DropdownMenu>
-                  <DropdownMenu.Trigger
-                    className="console-icon-trigger"
-                    aria-label="Notifikasi"
-                  >
-                    <Activity size={17} />
-                    {Boolean(notifications.data?.unread) && (
-                      <span className="notification-count">
-                        {notifications.data?.unread &&
-                        notifications.data.unread > 9
-                          ? "9+"
-                          : notifications.data?.unread}
-                      </span>
-                    )}
-                  </DropdownMenu.Trigger>
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content
-                      className="notification-popover"
-                      align="end"
-                      side="bottom"
-                      sideOffset={8}
-                    >
-                      <div className="notification-popover__header">
-                        <div>
-                          <strong>Notifikasi</strong>
-                          <span>
-                            {notifications.data?.unread || 0} belum dibaca
-                          </span>
-                        </div>
-                        <DropdownMenu.LinkItem href="/notifications">
-                          Lihat semua
-                        </DropdownMenu.LinkItem>
-                      </div>
-                      {notifications.data?.items?.length ? (
-                        notifications.data.items.slice(0, 8).map((item) => (
-                          <DropdownMenu.Item
-                            className={`notification-item ${item.read_at ? "is-read" : ""}`}
-                            key={String(item.id)}
-                            onClick={() => void openNotification(item)}
-                          >
-                            <strong>{String(item.title)}</strong>
-                            <span>{String(item.body)}</span>
-                            <small>
-                              {new Date(String(item.created_at)).toLocaleString(
-                                "id-ID",
-                              )}
-                            </small>
-                          </DropdownMenu.Item>
-                        ))
-                      ) : (
-                        <div className="notification-empty">
-                          Tidak ada notifikasi baru.
-                        </div>
-                      )}
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu>
-              </div>
+              <a className="console-topbar__support" href="/reconcile">
+                Bantuan
+              </a>
               <DropdownMenu>
                 <DropdownMenu.Trigger
                   className="language-picker"
@@ -876,7 +613,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </header>
           <main className="console-content">{children}</main>
           <footer className="console-footer">
-            <span>GateGuard</span>
+                <span>Outurn</span>
             <div>
               <Link href="/settings/security">Status sistem</Link>
               <Link href="/settings">Dokumentasi</Link>
@@ -902,7 +639,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 setSelectedIndex(0);
               }}
               placeholder={t("searchPlaceholder")}
-              aria-label={t("searchGateGuard")}
+            aria-label={t("searchOuturn")}
             />
             <Button
               variant="ghost"

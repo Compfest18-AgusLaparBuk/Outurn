@@ -44,7 +44,7 @@ export function AssuranceTimeseries({
   );
 
   if (isLoading) {
-    return <div className="chart-empty" role="status"><strong>Memuat data periode…</strong><span>GateGuard mengambil peristiwa yang tersimpan untuk rentang waktu ini.</span></div>;
+    return <div className="chart-empty" role="status"><strong>Memuat data periode…</strong><span>Outurn mengambil peristiwa yang tersimpan untuk rentang waktu ini.</span></div>;
   }
   if (error) {
     return <div className="chart-empty chart-empty--error" role="alert"><strong>Chart tidak dapat dimuat</strong><span>{error}</span></div>;

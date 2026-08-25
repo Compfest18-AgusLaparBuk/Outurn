@@ -8,9 +8,9 @@ import {
   GoogleLogoIcon as GoogleLogo,
   AppleLogoIcon as AppleLogo,
   LockKeyIcon as LockKey,
-  ShieldCheckIcon as ShieldCheck,
 } from "@phosphor-icons/react";
 import { Checkbox } from "@cloudflare/kumo/components/checkbox";
+import { CloudflareLogo } from "@cloudflare/kumo/components/cloudflare-logo";
 import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
 import { Input } from "@cloudflare/kumo/components/input";
 import { useQuery } from "@tanstack/react-query";
@@ -29,11 +29,14 @@ import {
 
 function GateLogo() {
   return (
-    <div className="gate-logo" aria-label="GateGuard">
-      <span className="gate-logo__mark">
-        <ShieldCheck size={16} weight="bold" />
-      </span>
-      <span className="gate-logo__word">GateGuard</span>
+    <div className="gate-logo" aria-label="Outurn">
+      <CloudflareLogo
+        variant="glyph"
+        color="color"
+        className="gate-logo__mark"
+        aria-hidden="true"
+      />
+      <span className="gate-logo__word">Outurn</span>
     </div>
   );
 }

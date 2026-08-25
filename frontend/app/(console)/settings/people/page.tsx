@@ -60,7 +60,7 @@ export default function PeoplePage() {
   if (context.isPending)
     return (
       <main className="grid min-h-screen place-items-center text-sm text-[var(--subtle)]">
-        <LoadingState label="Memuat sesi GateGuard…" />
+        <LoadingState label="Memuat sesi Outurn…" />
       </main>
     );
   if (!canManagePeople)
