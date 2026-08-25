@@ -21,6 +21,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ActionLink } from "@/components/ui/button";
 import {
   operationalStatusLabel,
+  operationalTextLabel,
   OperationalState,
   MetricCell,
   StateNotice,
@@ -296,7 +297,7 @@ export default function DashboardPage() {
                     {String(item.label)}
                   </span>
                   <small>
-                    {String(item.object_type)} ·{" "}
+                    {operationalTextLabel(String(item.object_type))} ·{" "}
                     {new Date(String(item.viewed_at)).toLocaleString("id-ID")}
                   </small>
                 </div>

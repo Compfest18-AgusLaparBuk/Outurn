@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/page-primitives";
 import {
   operationalStatusLabel,
+  operationalTextLabel,
   OperationalState,
   StateNotice,
 } from "@/components/ui/operational-primitives";
@@ -44,7 +45,7 @@ const sourceLabel: Record<string, string> = {
 };
 
 export default function RulePacksPage() {
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState("");
   const result = useQuery({
     queryKey: ["rule-packs"],
     queryFn: () => fetchOperationsList("/rule-packs"),
@@ -54,7 +55,7 @@ export default function RulePacksPage() {
     [result.data],
   );
   const visible = items.filter(
-    (item) => status === "all" || item.status === status,
+    (item) => !status || item.status === status,
   );
   return (
     <div className="operations-page cf-rule-packs-page">
@@ -73,7 +74,7 @@ export default function RulePacksPage() {
           value={status}
           onValueChange={setStatus}
           options={[
-            { value: "all", label: "Semua status" },
+            { value: "", label: "Semua status" },
             { value: "DRAFT", label: operationalStatusLabel("DRAFT") },
             { value: "PUBLISHED", label: operationalStatusLabel("PUBLISHED") },
           ]}
@@ -135,7 +136,7 @@ export default function RulePacksPage() {
                     </Table.Cell>
                     <Table.Cell>{item.scope}</Table.Cell>
                     <Table.Cell>
-                      {sourceLabel[item.source] || item.source}
+                      {sourceLabel[item.source] || operationalTextLabel(item.source)}
                     </Table.Cell>
                     <Table.Cell>
                       <span className="cf-table-date">

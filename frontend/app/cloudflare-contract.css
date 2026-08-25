@@ -28,8 +28,9 @@
   --cf-space-6: 24px;
   --cf-space-7: 28px;
   --cf-space-8: 32px;
-  --cf-shell-sidebar: 240px;
-  --cf-shell-sidebar-collapsed: 64px;
+  /* Kumo Sidebar defaults: 16.25rem expanded / 57px icon rail. */
+  --cf-shell-sidebar: 260px;
+  --cf-shell-sidebar-collapsed: 57px;
   --cf-shell-topbar: 52px;
   --cf-content-max: 1600px;
   --cf-content-gutter: 32px;

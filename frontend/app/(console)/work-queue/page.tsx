@@ -37,7 +37,7 @@ function dueLabel(value: string | null | undefined, now: number | null) {
 
 export default function WorkQueuePage() {
   const [page, setPage] = useState(1);
-  const [status, setStatus] = useState("OPEN");
+  const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
   const [assignment, setAssignment] = useState("");
   const [due, setDue] = useState("");
@@ -128,7 +128,10 @@ export default function WorkQueuePage() {
         <AppSelect
           ariaLabel="Filter jatuh tempo"
           value={due}
-          onValueChange={setDue}
+          onValueChange={(value) => {
+            setPage(1);
+            setDue(value);
+          }}
           options={[
             { value: "", label: "Semua jatuh tempo" },
             { value: "overdue", label: "Terlambat" },

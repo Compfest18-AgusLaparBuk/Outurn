@@ -4,6 +4,9 @@ import {
   CaretDownIcon as CaretDown,
   EyeIcon as Eye,
   EyeSlashIcon as EyeSlash,
+  GithubLogoIcon as GithubLogo,
+  GoogleLogoIcon as GoogleLogo,
+  AppleLogoIcon as AppleLogo,
   LockKeyIcon as LockKey,
   ShieldCheckIcon as ShieldCheck,
 } from "@phosphor-icons/react";
@@ -157,7 +160,7 @@ export default function LoginPage() {
                   className="auth-social-icon auth-social-icon--google"
                   aria-hidden="true"
                 >
-                  G
+                  <GoogleLogo size={16} weight="bold" />
                 </span>
                 Google
               </Button>
@@ -176,7 +179,7 @@ export default function LoginPage() {
                   className="auth-social-icon auth-social-icon--apple"
                   aria-hidden="true"
                 >
-                  ●
+                  <AppleLogo size={16} weight="fill" />
                 </span>
                 Apple
               </Button>
@@ -195,7 +198,7 @@ export default function LoginPage() {
                   className="auth-social-icon auth-social-icon--github"
                   aria-hidden="true"
                 >
-                  ●
+                  <GithubLogo size={16} weight="fill" />
                 </span>
                 GitHub
               </Button>

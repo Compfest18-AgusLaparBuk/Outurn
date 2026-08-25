@@ -239,18 +239,16 @@ export default function PeoplePage() {
                 setForm({ ...form, password: event.target.value })
               }
             />
-            <label>
-              {t.role}
-              <AppSelect
-                ariaLabel={t.role}
-                value={form.role}
-                onValueChange={(role) => setForm({ ...form, role })}
-                options={[
-                  { value: "operator", label: "Operator" },
-                  { value: "supervisor", label: "Peninjau" },
-                ]}
-              />
-            </label>
+            <AppSelect
+              ariaLabel={t.role}
+              label={t.role}
+              value={form.role}
+              onValueChange={(role) => setForm({ ...form, role })}
+              options={[
+                { value: "operator", label: "Operator" },
+                { value: "supervisor", label: "Peninjau" },
+              ]}
+            />
             {mutation.isError && (
               <p role="alert" className="form-error">
                 {(mutation.error as Error).message}

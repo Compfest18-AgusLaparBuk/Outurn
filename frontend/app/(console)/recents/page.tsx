@@ -6,9 +6,11 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import {
   CloudflarePageShell,
+  DataTableSurface,
   EmptyState,
   LoadingState,
 } from "@/components/ui/page-primitives";
+import { operationalTextLabel } from "@/components/ui/operational-primitives";
 import { fetchRecents } from "@/lib/api";
 
 export default function RecentsPage() {
@@ -21,16 +23,11 @@ export default function RecentsPage() {
         title="Terakhir dibuka"
         description="Kembali ke pekerjaan pengiriman, bukti, dan keputusan yang baru saja Anda buka."
       />
-      <section className="data-panel data-panel--wide">
-        <div className="data-panel__header">
-          <div>
-            <h2>Aktivitas terbaru</h2>
-            <p>
-              Hanya metadata rute yang aman disimpan; isi dokumen tidak pernah
-              disimpan di browser.
-            </p>
-          </div>
-        </div>
+      <DataTableSurface
+        className="data-panel--wide"
+        title="Aktivitas terbaru"
+        description="Hanya metadata rute yang aman disimpan; isi dokumen tidak pernah disimpan di browser."
+      >
         {result.isPending ? (
           <LoadingState label="Memuat aktivitas terbaru…" />
         ) : items.length ? (
@@ -42,9 +39,9 @@ export default function RecentsPage() {
                 key={String(item.id)}
               >
                 <div>
-                  <strong>{String(item.label)}</strong>
+                  <span className="activity-row__title">{String(item.label)}</span>
                   <small>
-                    {String(item.object_type)} ·{" "}
+                    {operationalTextLabel(String(item.object_type))} ·{" "}
                     {new Date(String(item.viewed_at)).toLocaleString("id-ID")}
                   </small>
                 </div>
@@ -58,7 +55,7 @@ export default function RecentsPage() {
             description="Buka pengiriman, dokumen, pengecualian, atau keputusan pelepasan untuk melihatnya di sini."
           />
         )}
-      </section>
+      </DataTableSurface>
     </CloudflarePageShell>
   );
 }

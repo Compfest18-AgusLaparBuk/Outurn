@@ -37,7 +37,7 @@ function date(value: unknown) {
 }
 
 export default function ExceptionsPage() {
-  const [status, setStatus] = useState("OPEN");
+  const [status, setStatus] = useState("");
   const [mine, setMine] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [comment, setComment] = useState("");

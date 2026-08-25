@@ -125,7 +125,7 @@ export default function AssurancePage() {
                         <Table.Cell>
                           <span className="table-cell-primary">
                             {operationalTextLabel(
-                              String(row.check_type || "—"),
+                              operationalTextLabel(String(row.check_type || "—")),
                             )}
                           </span>
                         </Table.Cell>

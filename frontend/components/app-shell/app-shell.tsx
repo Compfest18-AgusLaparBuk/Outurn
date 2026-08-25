@@ -27,6 +27,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -35,7 +36,11 @@ import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
 import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { Input } from "@cloudflare/kumo/components/input";
 import { Loader } from "@cloudflare/kumo/components/loader";
-import { Sidebar, SidebarProvider } from "@cloudflare/kumo/components/sidebar";
+import {
+  Sidebar,
+  SidebarProvider,
+  useSidebar,
+} from "@cloudflare/kumo/components/sidebar";
 import { hasMinimumRole } from "@/lib/access";
 import {
   fetchGlobalSearch,
@@ -361,6 +366,49 @@ function activeLabel(pathname: string, language: AppLanguage) {
   return translate(language, "overview");
 }
 
+function SidebarViewportGuard() {
+  const { isMobile, openMobile, setOpenMobile } = useSidebar();
+  const initializedMobile = useRef(false);
+
+  useEffect(() => {
+    if (!isMobile) {
+      initializedMobile.current = false;
+      return;
+    }
+    if (!initializedMobile.current) {
+      initializedMobile.current = true;
+      if (openMobile) setOpenMobile(false);
+    }
+  }, [isMobile, openMobile, setOpenMobile]);
+
+  return null;
+}
+
+function SidebarControl({
+  collapsedLabel,
+  expandedLabel,
+  className,
+}: {
+  collapsedLabel: string;
+  expandedLabel: string;
+  className?: string;
+}) {
+  const { isMobile, open, openMobile, toggleSidebar } = useSidebar();
+  const expanded = isMobile ? openMobile : open;
+  return (
+    <Button
+      variant="ghost"
+      shape="square"
+      size="base"
+      icon={SidebarSimple}
+      aria-label={expanded ? expandedLabel : collapsedLabel}
+      title={expanded ? expandedLabel : collapsedLabel}
+      className={className}
+      onClick={toggleSidebar}
+    />
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -492,9 +540,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem("gateguard.sidebar.collapsed", String(next));
     window.dispatchEvent(new Event(SIDEBAR_CHANGE_EVENT));
   }
-  function toggleSidebar() {
-    setSidebarOpen(collapsed);
-  }
   function openSearch() {
     setSearch("");
     setSelectedIndex(0);
@@ -548,10 +593,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         open={!collapsed}
         onOpenChange={setSidebarOpen}
         collapsible="icon"
-        animationDuration={180}
-        mobileBreakpoint={900}
+        animationDuration={250}
+        mobileBreakpoint={768}
         className="console-shell__layout"
       >
+        <SidebarViewportGuard />
         <Sidebar
           className="console-sidebar"
           contentClassName="console-sidebar__content"
@@ -561,15 +607,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <ShieldCheck size={20} weight="bold" />
             </span>
             <span className="console-brand-name">GateGuard</span>
-            <Button
-              variant="ghost"
-              shape="square"
-              size="base"
-              icon={SidebarSimple}
-              aria-label={collapsed ? "Buka navigasi" : "Perkecil navigasi"}
-              title={collapsed ? "Buka navigasi" : "Perkecil navigasi"}
+            <SidebarControl
+              collapsedLabel="Buka navigasi"
+              expandedLabel="Perkecil navigasi"
               className="console-sidebar__toggle"
-              onClick={toggleSidebar}
             />
           </Sidebar.Header>
           <div className="workspace-switcher-wrap">
@@ -726,15 +767,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="console-main">
           <header className="console-topbar">
             <div className="console-topbar__left">
-              <Button
-                variant="ghost"
-                shape="square"
-                size="base"
-                icon={SidebarSimple}
-                aria-label="Buka navigasi"
-                title="Buka navigasi"
+              <SidebarControl
+                collapsedLabel="Buka navigasi"
+                expandedLabel="Tutup navigasi"
                 className="console-mobile-toggle"
-                onClick={toggleSidebar}
               />
               <div className="console-breadcrumb">
                 <span>GateGuard</span>

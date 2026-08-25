@@ -7,7 +7,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ActionLink } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
-import { StateNotice } from "@/components/ui/operational-primitives";
+import {
+  operationalStatusLabel,
+  operationalTextLabel,
+  StateNotice,
+} from "@/components/ui/operational-primitives";
 import {
   CloudflarePageShell,
   DataTableSurface,
@@ -44,7 +48,7 @@ function StatusValue({ value }: { value: unknown }) {
           : "neutral";
   return (
     <Badge appearance="dot" variant={variant}>
-      {label}
+      {operationalStatusLabel(label)}
     </Badge>
   );
 }
@@ -69,7 +73,7 @@ const configs: Record<
         label: "Document",
         value: (row) => (
           <span className="table-cell-primary">
-            {String(row.document_type)}
+            {operationalTextLabel(String(row.document_type))}
           </span>
         ),
       },
@@ -85,7 +89,7 @@ const configs: Record<
         label: "Extraction",
         value: (row) =>
           row.version
-            ? String((row.version as Record<string, unknown>).extraction_status)
+            ? operationalStatusLabel(String((row.version as Record<string, unknown>).extraction_status))
             : "Pending",
       },
       { label: "Status", value: (row) => <StatusValue value={row.status} /> },
@@ -102,13 +106,13 @@ const configs: Record<
           <span className="table-cell-primary">{String(row.legal_name)}</span>
         ),
       },
-      { label: "Country", value: (row) => String(row.country_code || "—") },
+      { label: "Country", value: (row) => operationalTextLabel(String(row.country_code || "—")) },
       {
         label: "Identifier",
         value: (row) =>
           String(row.external_identifier || row.tax_identifier || "—"),
       },
-      { label: "Screening", value: (row) => String(row.screening) },
+      { label: "Screening", value: (row) => operationalStatusLabel(String(row.screening)) },
       { label: "Shipments", value: (row) => String(row.shipment_count) },
     ],
   },
@@ -148,7 +152,7 @@ const configs: Record<
       {
         label: "Mode",
         value: (row) => (
-          <span className="table-cell-primary">{String(row.mode)}</span>
+          <span className="table-cell-primary">{operationalTextLabel(String(row.mode))}</span>
         ),
       },
       { label: "Carrier", value: (row) => String(row.carrier || "—") },
@@ -181,7 +185,7 @@ const configs: Record<
       {
         label: "Document type",
         value: (row) =>
-          String((row.requirement as Record<string, unknown>).document_type),
+          operationalTextLabel(String((row.requirement as Record<string, unknown>).document_type)),
       },
       {
         label: "Result",
@@ -212,10 +216,10 @@ const configs: Record<
           </span>
         ),
       },
-      { label: "Check", value: (row) => String(row.check_type) },
+      { label: "Check", value: (row) => operationalTextLabel(String(row.check_type)) },
       { label: "Status", value: (row) => <StatusValue value={row.status} /> },
-      { label: "Severity", value: (row) => String(row.severity) },
-      { label: "Source", value: (row) => String(row.source) },
+      { label: "Severity", value: (row) => operationalStatusLabel(String(row.severity)) },
+      { label: "Source", value: (row) => operationalTextLabel(String(row.source)) },
       {
         label: "Completed",
         value: (row) =>
@@ -254,7 +258,7 @@ const configs: Record<
             ? new Date(String(row.due_at)).toLocaleString("en-GB")
             : "—",
       },
-      { label: "Status", value: (row) => String(row.status) },
+      { label: "Status", value: (row) => operationalStatusLabel(String(row.status)) },
     ],
   },
   releases: {
@@ -271,7 +275,7 @@ const configs: Record<
           </span>
         ),
       },
-      { label: "Decision", value: (row) => String(row.decision) },
+      { label: "Decision", value: (row) => operationalStatusLabel(String(row.decision)) },
       { label: "Issued by", value: (row) => String(row.issued_by_name) },
       {
         label: "Issued",
@@ -296,11 +300,11 @@ const configs: Record<
       { label: "Shipment", value: (row) => String(row.shipment_reference) },
       {
         label: "Provider",
-        value: (row) => String((row.run as Record<string, unknown>).provider),
+        value: (row) => operationalTextLabel(String((row.run as Record<string, unknown>).provider)),
       },
       {
         label: "Result",
-        value: (row) => String((row.run as Record<string, unknown>).result),
+        value: (row) => operationalStatusLabel(String((row.run as Record<string, unknown>).result)),
       },
       {
         label: "Score",
@@ -340,7 +344,7 @@ const configs: Record<
             (row.item as Record<string, unknown>).hazard_class || "Missing",
           ),
       },
-      { label: "Assurance", value: (row) => String(row.assurance) },
+      { label: "Assurance", value: (row) => operationalStatusLabel(String(row.assurance)) },
     ],
   },
   connections: {
@@ -355,8 +359,8 @@ const configs: Record<
           <span className="table-cell-primary">{String(row.name)}</span>
         ),
       },
-      { label: "Type", value: (row) => String(row.type) },
-      { label: "Status", value: (row) => String(row.status) },
+      { label: "Type", value: (row) => operationalTextLabel(String(row.type)) },
+      { label: "Status", value: (row) => operationalStatusLabel(String(row.status)) },
       {
         label: "Last success",
         value: (row) =>
@@ -382,10 +386,10 @@ const configs: Record<
       {
         label: "Job",
         value: (row) => (
-          <span className="table-cell-primary">{String(row.job_type)}</span>
+          <span className="table-cell-primary">{operationalTextLabel(String(row.job_type))}</span>
         ),
       },
-      { label: "Status", value: (row) => String(row.status) },
+      { label: "Status", value: (row) => operationalStatusLabel(String(row.status)) },
       { label: "Attempts", value: (row) => String(row.attempts) },
       {
         label: "Queued",

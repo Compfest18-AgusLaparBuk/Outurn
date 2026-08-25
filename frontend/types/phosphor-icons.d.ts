@@ -46,6 +46,7 @@ declare module "@phosphor-icons/react" {
   export const X: Icon;
 
   export const ActivityIcon: Icon;
+  export const AppleLogoIcon: Icon;
   export const ArchiveIcon: Icon;
   export const ArrowLeftIcon: Icon;
   export const ArrowsClockwiseIcon: Icon;
@@ -64,6 +65,8 @@ declare module "@phosphor-icons/react" {
   export const FileTextIcon: Icon;
   export const FunnelIcon: Icon;
   export const GearIcon: Icon;
+  export const GithubLogoIcon: Icon;
+  export const GoogleLogoIcon: Icon;
   export const HouseIcon: Icon;
   export const ListChecksIcon: Icon;
   export const LockKeyIcon: Icon;

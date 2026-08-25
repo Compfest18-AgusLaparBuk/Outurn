@@ -11,12 +11,21 @@ import { useParams } from "next/navigation";
 import { fetchReconciliation } from "@/lib/api";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { StateNotice } from "@/components/ui/operational-primitives";
-import { LoadingState } from "@/components/ui/page-primitives";
+import {
+  operationalStatusLabel,
+  operationalTextLabel,
+  OperationalState,
+  StateNotice,
+} from "@/components/ui/operational-primitives";
+import {
+  CloudflarePageShell,
+  DataTableSurface,
+  LoadingState,
+} from "@/components/ui/page-primitives";
 import type { DocumentType } from "@/lib/types";
 
 const labels: Record<DocumentType, string> = {
-  delivery_order: "Delivery order",
+  delivery_order: "Surat jalan",
   invoice: "Invoice",
   packing_list: "Packing list",
 };
@@ -42,9 +51,9 @@ export default function HistoryDetailPage() {
     );
   const item = result.data;
   return (
-    <div>
+    <CloudflarePageShell className="cf-history-detail-page">
       <Link href="/history" className="back-link">
-        <ArrowLeft size={15} /> Back to check history
+        <ArrowLeft size={15} /> Kembali ke riwayat pemeriksaan
       </Link>
       <PageHeader
         icon={FileText}
@@ -53,50 +62,44 @@ export default function HistoryDetailPage() {
         actions={<StatusBadge status={item.effective_status} />}
       />
       <div className="detail-grid">
-        <section className="data-panel">
-          <div className="data-panel__header">
-            <div>
-              <h2>Decision record</h2>
-              <p>The current decision and the next step for this shipment.</p>
-            </div>
-          </div>
+        <DataTableSurface
+          title="Catatan keputusan"
+          description="Keputusan terkini dan langkah berikutnya untuk pengiriman ini."
+        >
           <dl className="detail-list">
             <div>
-              <dt>Initial decision</dt>
-              <dd>{item.audit.system_decision}</dd>
+              <dt>Keputusan awal</dt>
+              <dd><OperationalState value={item.audit.system_decision} /></dd>
             </div>
             <div>
-              <dt>Current decision</dt>
-              <dd>{item.effective_status}</dd>
+              <dt>Keputusan akhir</dt>
+              <dd><OperationalState value={item.effective_status} /></dd>
             </div>
             <div>
-              <dt>Recommended next step</dt>
-              <dd>{item.recommended_action}</dd>
+              <dt>Langkah berikutnya</dt>
+              <dd>{operationalTextLabel(item.recommended_action)}</dd>
             </div>
             <div>
-              <dt>Completed</dt>
-              <dd>{new Date(item.created_at).toLocaleString("en-GB")}</dd>
+              <dt>Selesai</dt>
+              <dd>{new Date(item.created_at).toLocaleString("id-ID")}</dd>
             </div>
           </dl>
-        </section>
-        <section className="data-panel">
-          <div className="data-panel__header">
-            <div>
-              <h2>Findings</h2>
-              <p>Differences that affected the decision.</p>
-            </div>
-          </div>
+        </DataTableSurface>
+        <DataTableSurface
+          title="Temuan"
+          description="Perbedaan yang memengaruhi keputusan pemeriksaan."
+        >
           {item.mismatches.length === 0 ? (
-            <p className="empty-copy">No material differences were found.</p>
+            <p className="empty-copy">Tidak ada perbedaan material.</p>
           ) : (
             <div className="space-y-4">
               {item.mismatches.map((mismatch) => (
                 <article key={mismatch.id}>
                   <div className="flex items-center justify-between gap-3">
-                    <strong>{mismatch.type.replaceAll("_", " ")}</strong>
-                    <span className="shipment-state shipment-state--high">
-                      {mismatch.severity}
+                    <span className="table-cell-primary">
+                      {operationalTextLabel(mismatch.type)}
                     </span>
+                    <OperationalState value={mismatch.severity} />
                   </div>
                   <p className="mt-1 text-sm text-[var(--text-subtle)]">
                     {mismatch.explanation}
@@ -105,15 +108,12 @@ export default function HistoryDetailPage() {
               ))}
             </div>
           )}
-        </section>
+        </DataTableSurface>
       </div>
-      <section className="data-panel data-panel--wide">
-        <div className="data-panel__header">
-          <div>
-            <h2>Document details</h2>
-            <p>Information read from each uploaded document.</p>
-          </div>
-        </div>
+      <DataTableSurface
+        title="Detail dokumen"
+        description="Informasi yang dibaca dari setiap dokumen yang diunggah."
+      >
         <div className="table-scroll">
           <Table>
             <Table.Header sticky>
@@ -135,13 +135,13 @@ export default function HistoryDetailPage() {
                 <Table.Row key={type}>
                   <Table.Cell>{labels[type]}</Table.Cell>
                   <Table.Cell>
-                    {String(doc.document_id.value || "Not provided")}
+                    {String(doc.document_id.value || "Tidak tersedia")}
                   </Table.Cell>
                   <Table.Cell>
-                    {String(doc.shipment_id.value || "Not provided")}
+                    {String(doc.shipment_id.value || "Tidak tersedia")}
                   </Table.Cell>
                   <Table.Cell>
-                    {String(doc.recipient.value || "Not provided")}
+                    {String(doc.recipient.value || "Tidak tersedia")}
                   </Table.Cell>
                   <Table.Cell>
                     {Math.round(doc.document_type_confidence * 100)}%
@@ -151,15 +151,12 @@ export default function HistoryDetailPage() {
             </Table.Body>
           </Table>
         </div>
-      </section>
+      </DataTableSurface>
       {item.audit.override_history.length > 0 && (
-        <section className="data-panel data-panel--wide">
-          <div className="data-panel__header">
-            <div>
-              <h2>Decision updates</h2>
-              <p>Supervisor changes recorded with their reason.</p>
-            </div>
-          </div>
+        <DataTableSurface
+          title="Perubahan keputusan"
+          description="Perubahan supervisor dan alasannya yang tersimpan."
+        >
           <div className="space-y-3">
             {item.audit.override_history.map((event) => (
               <div
@@ -167,18 +164,18 @@ export default function HistoryDetailPage() {
                 className="border-l-2 border-blue-500 pl-4 text-sm"
               >
                 <strong>
-                  {event.previous_decision} → {event.final_decision}
+                  {operationalStatusLabel(event.previous_decision)} → {operationalStatusLabel(event.final_decision)}
                 </strong>
                 <p className="mt-1 text-[var(--text-subtle)]">{event.reason}</p>
                 <small className="text-[var(--text-subtle)]">
                   {event.actor} ·{" "}
-                  {new Date(event.created_at).toLocaleString("en-GB")}
+                  {new Date(event.created_at).toLocaleString("id-ID")}
                 </small>
               </div>
             ))}
           </div>
-        </section>
+        </DataTableSurface>
       )}
-    </div>
+    </CloudflarePageShell>
   );
 }

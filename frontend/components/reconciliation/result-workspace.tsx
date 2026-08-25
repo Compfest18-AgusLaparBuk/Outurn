@@ -308,20 +308,19 @@ function OverrideDialog({
           Identitas pemberi override diambil dari akun supervisor yang sedang
           login dan dicatat otomatis.
         </p>
-        <label className="override-dialog__field">
-          Keputusan akhir
-          <AppSelect
-            ariaLabel="Keputusan akhir"
-            value={decision}
-            onValueChange={(value) =>
-              setDecision(value as ReconciliationStatus)
-            }
-            options={["CLEAR", "REVIEW", "HOLD"].map((value) => ({
-              value,
-              label: operationalStatusLabel(value),
-            }))}
-          />
-        </label>
+        <AppSelect
+          className="override-dialog__field"
+          ariaLabel="Keputusan akhir"
+          label="Keputusan akhir"
+          value={decision}
+          onValueChange={(value) =>
+            setDecision(value as ReconciliationStatus)
+          }
+          options={["CLEAR", "REVIEW", "HOLD"].map((value) => ({
+            value,
+            label: operationalStatusLabel(value),
+          }))}
+        />
         <AppTextarea
           label="Alasan override"
           value={reason}

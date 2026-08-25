@@ -8,7 +8,12 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { ActionLink } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
-import { LoadingState } from "@/components/ui/page-primitives";
+import {
+  CloudflarePageShell,
+  DataTableSurface,
+  LoadingState,
+} from "@/components/ui/page-primitives";
+import { StateNotice } from "@/components/ui/operational-primitives";
 import { fetchMe } from "@/lib/api";
 
 function roleLabel(role?: string) {
@@ -24,21 +29,35 @@ export default function ProfilePage() {
     retry: false,
   });
 
-  if (user.isPending || !user.data)
+  if (user.isPending)
     return (
       <main className="page-loading">
         <LoadingState label="Memuat profil…" />
       </main>
     );
 
+  if (user.isError || !user.data)
+    return (
+      <CloudflarePageShell className="profile-page">
+        <PageHeader
+          icon={UserList}
+          title="Profil saya"
+          description="Identitas akun dan preferensi akses pribadi Anda."
+        />
+        <StateNotice title="Profil belum dapat dimuat." tone="danger">
+          Coba lagi setelah koneksi layanan pulih.
+        </StateNotice>
+      </CloudflarePageShell>
+    );
+
   return (
-    <div className="operations-page profile-page">
+    <CloudflarePageShell className="profile-page">
       <PageHeader
         icon={UserList}
         title="Profil saya"
         description="Kelola identitas akun dan preferensi akses pribadi Anda."
       />
-      <section className="profile-card">
+      <DataTableSurface className="profile-card">
         <div className="profile-card__identity">
           <span className="profile-card__avatar">
             {user.data.display_name.slice(0, 1).toUpperCase()}
@@ -77,7 +96,7 @@ export default function ProfilePage() {
             Atur notifikasi
           </ActionLink>
         </div>
-      </section>
-    </div>
+      </DataTableSurface>
+    </CloudflarePageShell>
   );
 }

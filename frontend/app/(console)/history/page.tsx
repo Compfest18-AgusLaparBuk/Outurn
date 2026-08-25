@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { AppSelect } from "@/components/ui/select";
 import {
   AppPagination,
+  DataTableSurface,
   FilterBar,
   LoadingState,
   SearchField,
@@ -73,7 +74,7 @@ export default function HistoryPage() {
           Coba lagi setelah koneksi layanan pulih.
         </StateNotice>
       )}
-      <section className="data-panel data-panel--wide">
+      <DataTableSurface className="data-panel--wide">
         {result.isPending ? (
           <LoadingState
             label="Memuat riwayat pemeriksaan…"
@@ -129,7 +130,7 @@ export default function HistoryPage() {
             </Table>
           </div>
         )}
-      </section>
+      </DataTableSurface>
       {result.data && (
         <AppPagination
           page={page}

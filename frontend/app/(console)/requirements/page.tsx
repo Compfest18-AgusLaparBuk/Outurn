@@ -8,6 +8,7 @@ import { ActionLink } from "@/components/ui/button";
 import {
   MetricCell,
   operationalStatusLabel,
+  operationalTextLabel,
   OperationalState,
   StateNotice,
 } from "@/components/ui/operational-primitives";
@@ -150,7 +151,7 @@ export default function RequirementsPage() {
                             {String(row.shipment_reference || "—")}
                           </Table.Cell>
                           <Table.Cell>
-                            {String(requirement.document_type || "—")}
+                            {operationalTextLabel(String(requirement.document_type || "—"))}
                           </Table.Cell>
                           <Table.Cell>
                             {String(

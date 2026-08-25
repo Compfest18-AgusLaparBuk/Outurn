@@ -80,36 +80,32 @@ export default function GeneralSettingsPage() {
             value={form.name}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
           />
-          <label>
-            {t.timezone}
-            <AppSelect
-              ariaLabel={t.timezone}
-              value={form.default_timezone}
-              onValueChange={(default_timezone) =>
-                setForm({ ...form, default_timezone })
-              }
-              options={[
-                { value: "UTC", label: "UTC" },
-                { value: "Asia/Jakarta", label: "Asia/Jakarta" },
-                { value: "Europe/London", label: "Europe/London" },
-                { value: "America/New_York", label: "America/New_York" },
-              ]}
-            />
-          </label>
-          <label>
-            {t.locale}
-            <AppSelect
-              ariaLabel={t.locale}
-              value={form.default_locale}
-              onValueChange={(default_locale) =>
-                setForm({ ...form, default_locale })
-              }
-              options={[
-                { value: "en-GB", label: "English (United Kingdom)" },
-                { value: "id-ID", label: "Bahasa Indonesia" },
-              ]}
-            />
-          </label>
+          <AppSelect
+            ariaLabel={t.timezone}
+            label={t.timezone}
+            value={form.default_timezone}
+            onValueChange={(default_timezone) =>
+              setForm({ ...form, default_timezone })
+            }
+            options={[
+              { value: "UTC", label: "UTC" },
+              { value: "Asia/Jakarta", label: "Asia/Jakarta" },
+              { value: "Europe/London", label: "Europe/London" },
+              { value: "America/New_York", label: "America/New_York" },
+            ]}
+          />
+          <AppSelect
+            ariaLabel={t.locale}
+            label={t.locale}
+            value={form.default_locale}
+            onValueChange={(default_locale) =>
+              setForm({ ...form, default_locale })
+            }
+            options={[
+              { value: "en-GB", label: "English (United Kingdom)" },
+              { value: "id-ID", label: "Bahasa Indonesia" },
+            ]}
+          />
           <Input
             label={t.currency}
             maxLength={8}

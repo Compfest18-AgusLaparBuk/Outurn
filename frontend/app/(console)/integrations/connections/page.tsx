@@ -361,23 +361,21 @@ export default function ConnectionsPage() {
                   }
                   placeholder="Sistem gudang"
                 />
-                <label>
-                  Penyedia / tipe
-                  <AppSelect
-                    ariaLabel="Tipe koneksi"
-                    value={form.type}
-                    onValueChange={(type) => setForm({ ...form, type })}
-                    options={[
-                      { value: "ERP", label: "ERP" },
-                      { value: "WMS", label: "WMS" },
-                      { value: "Carrier", label: "Pengangkut" },
-                      {
-                        value: "Screening provider",
-                        label: "Penyedia penyaringan",
-                      },
-                    ]}
-                  />
-                </label>
+                <AppSelect
+                  ariaLabel="Tipe koneksi"
+                  label="Penyedia / tipe"
+                  value={form.type}
+                  onValueChange={(type) => setForm({ ...form, type })}
+                  options={[
+                    { value: "ERP", label: "ERP" },
+                    { value: "WMS", label: "WMS" },
+                    { value: "Carrier", label: "Pengangkut" },
+                    {
+                      value: "Screening provider",
+                      label: "Penyedia penyaringan",
+                    },
+                  ]}
+                />
               </div>
               {connection.isError ? (
                 <p className="form-error">

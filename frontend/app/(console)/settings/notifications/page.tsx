@@ -2,10 +2,12 @@
 
 import { startTransition, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@cloudflare/kumo/components/switch";
 import { PageHeader } from "@/components/ui/page-header";
 import { LoadingState } from "@/components/ui/page-primitives";
+import { StateNotice } from "@/components/ui/operational-primitives";
 import { fetchWorkspaceSettings, saveWorkspaceSettings } from "@/lib/api";
 import { useSettingsCopy } from "@/components/settings/settings-copy";
 
@@ -70,49 +72,54 @@ export default function NotificationSettingsPage() {
         />
       ) : null}
       {settings.isError ? (
-        <p className="form-error" role="alert">
-          Preferensi notifikasi tidak dapat dimuat.{" "}
-          {(settings.error as Error).message}
-        </p>
+        <StateNotice title="Preferensi notifikasi tidak dapat dimuat" tone="danger">
+          Coba lagi setelah koneksi layanan pulih.
+        </StateNotice>
       ) : null}
-      <form
-        className="data-panel settings-check-list settings-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          saveMutation.mutate();
-        }}
+      <LayerCard
+        className="cf-settings-notifications-surface"
       >
-        {optionKeys.map((key) => (
-          <Switch
-            key={key}
-            label={labels[key]}
-            checked={Boolean(form[key])}
-            onCheckedChange={(checked) =>
-              setForm({ ...form, [key]: Boolean(checked) })
-            }
-          />
-        ))}
-        <p className="muted-copy">{t.notificationPreferencesHint}</p>
-        <div className="form-panel__actions">
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={saveMutation.isPending}
-          >
-            {saveMutation.isPending ? "Menyimpan…" : t.saveNotifications}
-          </Button>
-          {saveMutation.isError ? (
-            <span className="form-error" role="alert">
-              {(saveMutation.error as Error).message}
-            </span>
-          ) : null}
-          {saved && (
-            <span className="form-success" role="status">
-              {t.notificationsSaved}
-            </span>
-          )}
-        </div>
-      </form>
+        <form
+          className="settings-check-list settings-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!settings.isPending) saveMutation.mutate();
+          }}
+          aria-busy={settings.isPending || saveMutation.isPending}
+        >
+          {optionKeys.map((key) => (
+            <Switch
+              key={key}
+              label={labels[key]}
+              checked={Boolean(form[key])}
+              disabled={settings.isPending || saveMutation.isPending}
+              onCheckedChange={(checked) =>
+                setForm((current) => ({ ...current, [key]: Boolean(checked) }))
+              }
+            />
+          ))}
+          <p className="muted-copy">{t.notificationPreferencesHint}</p>
+          <div className="form-panel__actions">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={settings.isPending || saveMutation.isPending}
+            >
+              {saveMutation.isPending ? "Menyimpan…" : t.saveNotifications}
+            </Button>
+            {saveMutation.isError ? (
+              <span className="form-error" role="alert">
+                Preferensi belum tersimpan. Coba lagi.
+              </span>
+            ) : null}
+            {saved && (
+              <span className="form-success" role="status">
+                {t.notificationsSaved}
+              </span>
+            )}
+          </div>
+        </form>
+      </LayerCard>
     </div>
   );
 }

@@ -22,6 +22,7 @@ import {
 import {
   MetricCell,
   operationalStatusLabel,
+  operationalTextLabel,
   OperationalState,
   StateNotice,
 } from "@/components/ui/operational-primitives";
@@ -73,7 +74,7 @@ const tabs = [
   { value: "workers", label: "Worker" },
 ];
 const jobStatusOptions = [
-  { value: "all", label: "Semua status" },
+  { value: "", label: "Semua status" },
   ...["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "DEAD_LETTER"].map(
     (value) => ({ value, label: operationalStatusLabel(value) }),
   ),
@@ -113,7 +114,7 @@ function JobDetailDialog({
           </div>
           <div>
             <dt>Jenis</dt>
-            <dd>{job.job_type}</dd>
+            <dd>{operationalTextLabel(job.job_type)}</dd>
           </div>
           <div>
             <dt>Status</dt>
@@ -173,7 +174,7 @@ function JobDetailDialog({
 
 export default function ObservabilityPage() {
   const [tab, setTab] = useState<Tab>("overview");
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState("");
   const [query, setQuery] = useState("");
   const [selectedJob, setSelectedJob] = useState<ProcessingJob | null>(null);
   const result = useQuery({
@@ -193,7 +194,7 @@ export default function ObservabilityPage() {
   const filteredJobs = useMemo(
     () =>
       jobs.filter((job) => {
-        const matchesStatus = status === "all" || job.status === status;
+        const matchesStatus = !status || job.status === status;
         const needle = query.trim().toLowerCase();
         return (
           matchesStatus &&
@@ -305,7 +306,7 @@ export default function ObservabilityPage() {
               {data.oldest_queued_job ? (
                 <div className="cf-queue-detail">
                   <span className="cf-label">Proses tertua di antrean</span>
-                  <span>{data.oldest_queued_job.job_type}</span>
+                  <span>{operationalTextLabel(data.oldest_queued_job.job_type)}</span>
                   <span className="cf-metadata">
                     Sejak {dateTime(data.oldest_queued_job.queued_at)}
                   </span>
@@ -341,7 +342,7 @@ export default function ObservabilityPage() {
                   {jobs.slice(0, 5).map((job) => (
                     <li key={job.id}>
                       <div>
-                        <span>{job.job_type}</span>
+                        <span>{operationalTextLabel(job.job_type)}</span>
                         <small>
                           {dateTime(
                             job.completed_at || job.started_at || job.queued_at,
@@ -425,7 +426,7 @@ export default function ObservabilityPage() {
                         </Table.Cell>
                         <Table.Cell>
                           <span className="table-cell-primary">
-                            {job.job_type}
+                            {operationalTextLabel(job.job_type)}
                           </span>
                           <br />
                           <span className="cf-metadata mono">

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/page-primitives";
 import {
   OperationalState,
+  operationalTextLabel,
   StateNotice,
 } from "@/components/ui/operational-primitives";
 import { PageHeader } from "@/components/ui/page-header";
@@ -50,7 +51,7 @@ export default function ReferenceDataPage() {
   });
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("all");
+  const [category, setCategory] = useState("");
   const mutation = useMutation({
     mutationFn: () => createReferenceData(form),
     onSuccess: () => {
@@ -71,7 +72,7 @@ export default function ReferenceDataPage() {
   );
   const categories = useMemo(
     () => [
-      { value: "all", label: "Semua kategori" },
+      { value: "", label: "Semua kategori" },
       ...Array.from(new Set(items.map((item) => item.category)))
         .sort()
         .map((value) => ({ value, label: value })),
@@ -82,7 +83,7 @@ export default function ReferenceDataPage() {
     const needle = query.trim().toLowerCase();
     return items.filter(
       (item) =>
-        (category === "all" || item.category === category) &&
+        (!category || item.category === category) &&
         (!needle ||
           [
             item.category,
@@ -169,7 +170,7 @@ export default function ReferenceDataPage() {
                       <span className="mono">{item.code}</span>
                     </Table.Cell>
                     <Table.Cell>{item.label}</Table.Cell>
-                    <Table.Cell>{item.source}</Table.Cell>
+                    <Table.Cell>{operationalTextLabel(item.source)}</Table.Cell>
                     <Table.Cell>
                       <span className="mono">{item.version}</span>
                     </Table.Cell>

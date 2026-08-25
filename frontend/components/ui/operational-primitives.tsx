@@ -22,6 +22,11 @@ const OPERATIONAL_STATUS_LABELS: Record<string, string> = {
   COMPLETED: "Selesai",
   AUTHORIZED: "Diotorisasi",
   RELEASE_AUTHORIZED: "Siap dirilis",
+  RELEASE_INVALIDATED: "Pelepasan perlu ditinjau",
+  RELEASE_PENDING_APPROVAL: "Menunggu persetujuan kedua",
+  PENDING_SECOND_APPROVAL: "Menunggu persetujuan kedua",
+  DISPATCHED: "Dikirim",
+  CLOSED: "Ditutup",
   REVIEW_REQUIRED: "Perlu ditinjau",
   DOCUMENTS_REQUIRED: "Dokumen diperlukan",
   NOT_CONFIGURED: "Belum dikonfigurasi",
@@ -37,7 +42,6 @@ const OPERATIONAL_STATUS_LABELS: Record<string, string> = {
   CONFIGURED: "Terkonfigurasi",
   MISSING: "Belum tersedia",
   REQUIRES_REVIEW: "Perlu ditinjau",
-  REJECTED: "Ditolak",
   UNKNOWN: "Belum diketahui",
   LOW: "Rendah",
   MEDIUM: "Sedang",
@@ -50,6 +54,16 @@ const OPERATIONAL_STATUS_LABELS: Record<string, string> = {
   INACTIVE: "Tidak aktif",
   DISABLED: "Dinonaktifkan",
   ENABLED: "Aktif",
+  APPROVED: "Disetujui",
+  REVOKED: "Dicabut",
+  REJECTED: "Ditolak",
+  FALSE_POSITIVE: "Bukan kecocokan",
+  MATCH: "Cocok",
+  PERLU_PERHATIAN: "Perlu perhatian",
+  TERHUBUNG: "Terhubung",
+  DOCUMENT: "Dokumen",
+  COUNTRY: "Negara",
+  SKU: "SKU",
 };
 
 const OPERATIONAL_TEXT_LABELS: Record<string, string> = {
@@ -69,6 +83,8 @@ const OPERATIONAL_TEXT_LABELS: Record<string, string> = {
   RAIL: "Rel",
   NEEDS_REVIEW: "Perlu ditinjau",
   REQUIRES_REVIEW: "Perlu ditinjau",
+  MENUNGGU_AKTIVITAS: "Menunggu aktivitas",
+  BELUM_AKTIF: "Belum aktif",
 };
 
 export function operationalStatusLabel(value: string | null | undefined) {
@@ -102,10 +118,10 @@ export function operationalTextLabel(value: string | null | undefined) {
 
 function tone(value: string) {
   const normalized = value.toLowerCase();
-  if (/(hold|failed|error|invalidated|critical|high)/.test(normalized))
+  if (/(hold|failed|error|dead_letter|invalidated|critical|high|rejected)/.test(normalized))
     return "error" as const;
   if (
-    /(review|pending|proposed|medium|not_configured|warning)/.test(normalized)
+    /(review|pending|proposed|medium|not_configured|not_running|warning)/.test(normalized)
   )
     return "warning" as const;
   if (/(clear|authorized|complete|success|low|resolved)/.test(normalized))
@@ -162,7 +178,7 @@ export function StateNotice({
           children
         ) : (
           <>
-            <strong>{title}</strong> {children}
+        <span className="cf-state-notice__title-inline">{title}</span> {children}
           </>
         )
       }

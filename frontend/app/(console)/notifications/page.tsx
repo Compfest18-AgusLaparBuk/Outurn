@@ -31,18 +31,80 @@ export default function NotificationsPage() {
   }
 
   const items = notifications.data?.items || [];
-  return <CloudflarePageShell className="cf-notifications-page">
-    <PageHeader icon={Activity} title="Notifikasi" description="Peringatan operasional terbaru untuk ruang kerja ini." />
-    {notifications.isError ? <StateNotice title="Notifikasi tidak dapat dimuat" tone="danger">{(notifications.error as Error).message}</StateNotice> : null}
-    <DataTableSurface title="Pusat notifikasi" actions={<span className="cf-metadata">{notifications.data?.unread || 0} belum dibaca</span>}>
-      {notifications.isPending ? <LoadingState label="Memuat notifikasi…" /> : items.length ? <ul className="cf-notification-list">{items.map((item) => {
-        const read = Boolean(item.read_at);
-        return <li className={`cf-notification-list__item ${read ? "is-read" : "is-unread"}`} key={String(item.id)}>
-          <div className="cf-notification-list__marker" aria-hidden="true">{read ? <Check size={14} /> : <span />}</div>
-          <div className="cf-notification-list__copy"><strong>{String(item.title || "Notifikasi")}</strong><p>{String(item.body || "")}</p><small>{notificationDate(item.created_at)}</small></div>
-          <Button variant="ghost" size="sm" icon={item.href ? ArrowRight : Check} disabled={read && !item.href || readNotification.isPending} onClick={() => void openNotification(item)}>{item.href ? "Buka" : read ? "Dibaca" : "Tandai dibaca"}</Button>
-        </li>;
-      })}</ul> : <EmptyState icon={<Activity size={20} />} title="Belum ada notifikasi" description="Peringatan operasional baru akan muncul di sini." />}
-    </DataTableSurface>
-  </CloudflarePageShell>;
+  return (
+    <CloudflarePageShell className="cf-notifications-page">
+      <PageHeader
+        icon={Activity}
+        title="Notifikasi"
+        description="Peringatan operasional terbaru untuk ruang kerja ini."
+      />
+      {notifications.isError ? (
+        <StateNotice title="Notifikasi tidak dapat dimuat" tone="danger">
+          Coba lagi setelah koneksi layanan pulih.
+        </StateNotice>
+      ) : null}
+      {readNotification.isError ? (
+        <StateNotice title="Notifikasi belum diperbarui" tone="warning">
+          Coba lagi sebentar lagi.
+        </StateNotice>
+      ) : null}
+      <DataTableSurface
+        title="Pusat notifikasi"
+        actions={
+          <span className="cf-metadata">
+            {notifications.data?.unread || 0} belum dibaca
+          </span>
+        }
+      >
+        {notifications.isPending ? (
+          <LoadingState label="Memuat notifikasi…" />
+        ) : items.length ? (
+          <ul className="cf-notification-list" aria-live="polite">
+            {items.map((item) => {
+              const read = Boolean(item.read_at);
+              const hasAction = Boolean(item.href) || !read;
+              return (
+                <li
+                  className={`cf-notification-list__item ${read ? "is-read" : "is-unread"}`}
+                  key={String(item.id)}
+                >
+                  <div className="cf-notification-list__marker" aria-hidden="true">
+                    {read ? <Check size={14} /> : <span />}
+                  </div>
+                  <div className="cf-notification-list__copy">
+                    <span className="cf-notification-list__title">
+                      {String(item.title || "Notifikasi")}
+                    </span>
+                    {item.body ? <p>{String(item.body)}</p> : null}
+                    <small>{notificationDate(item.created_at)}</small>
+                  </div>
+                  {hasAction ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={item.href ? ArrowRight : Check}
+                      disabled={readNotification.isPending}
+                      onClick={() => void openNotification(item)}
+                    >
+                      {item.href ? "Buka" : "Tandai dibaca"}
+                    </Button>
+                  ) : (
+                    <span className="cf-notification-list__read-label">
+                      Sudah dibaca
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <EmptyState
+            icon={<Activity size={20} />}
+            title="Belum ada notifikasi"
+            description="Peringatan operasional baru akan muncul di sini."
+          />
+        )}
+      </DataTableSurface>
+    </CloudflarePageShell>
+  );
 }

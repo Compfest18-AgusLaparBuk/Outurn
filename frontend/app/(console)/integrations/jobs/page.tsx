@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/page-primitives";
 import {
   operationalStatusLabel,
+  operationalTextLabel,
   OperationalState,
   StateNotice,
 } from "@/components/ui/operational-primitives";
@@ -49,7 +50,7 @@ const date = (value?: string | null) =>
 
 export default function JobsPage() {
   const client = useQueryClient();
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState("");
   const [query, setQuery] = useState("");
   const result = useQuery({
     queryKey: ["integration-jobs"],
@@ -68,7 +69,7 @@ export default function JobsPage() {
     const needle = query.trim().toLowerCase();
     return jobs.filter(
       (job) =>
-        (status === "all" || job.status === status) &&
+        (!status || job.status === status) &&
         (!needle ||
           [
             job.id,
@@ -110,7 +111,7 @@ export default function JobsPage() {
           value={status}
           onValueChange={setStatus}
           options={[
-            { value: "all", label: "Semua status" },
+            { value: "", label: "Semua status" },
             ...["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "DEAD_LETTER"].map(
               (value) => ({ value, label: operationalStatusLabel(value) }),
             ),
@@ -165,7 +166,7 @@ export default function JobsPage() {
                       </span>
                     </Table.Cell>
                     <Table.Cell>
-                      <span className="table-cell-primary">{job.job_type}</span>
+                      <span className="table-cell-primary">{operationalTextLabel(job.job_type)}</span>
                       <br />
                       <span className="cf-metadata mono">
                         {job.id.slice(0, 8)}

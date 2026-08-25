@@ -265,20 +265,18 @@ export default function TransportPage() {
                   setForm({ ...form, sequence: event.target.value })
                 }
               />
-              <label>
-                Moda
-                <AppSelect
-                  ariaLabel="Moda transportasi"
-                  value={form.mode}
-                  onValueChange={(mode) => setForm({ ...form, mode })}
-                  options={[
-                    { value: "Road", label: "Darat" },
-                    { value: "Sea", label: "Laut" },
-                    { value: "Air", label: "Udara" },
-                    { value: "Rail", label: "Rel" },
-                  ]}
-                />
-              </label>
+              <AppSelect
+                ariaLabel="Moda transportasi"
+                label="Moda"
+                value={form.mode}
+                onValueChange={(mode) => setForm({ ...form, mode })}
+                options={[
+                  { value: "Road", label: "Darat" },
+                  { value: "Sea", label: "Laut" },
+                  { value: "Air", label: "Udara" },
+                  { value: "Rail", label: "Rel" },
+                ]}
+              />
               <Input
                 label="Pengangkut"
                 value={form.carrier}

@@ -175,7 +175,12 @@ button, [role="button"], input, textarea, summary { outline: none; }
 .search-empty { padding: 28px 12px; color: var(--app-muted); text-align: center; }
 
 /* Shared page structure */
-.operations-page { width: 100%; max-width: none; }
+.operations-page { display: grid; width: 100%; max-width: none; min-width: 0; gap: var(--cf-section-gap); }
+.operations-page .data-panel--wide,
+.cf-page-shell .data-panel--wide { margin-top: 0; }
+.operations-page > .filter-bar,
+.operations-page > .operations-toolbar,
+.cf-page-shell > .cf-filter-bar { margin-bottom: 0; }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .page-header__copy { display: flex; align-items: flex-start; gap: 8px; }
 .page-header__icon { display: inline-flex; width: 25px; height: 32px; align-items: center; justify-content: flex-start; border: 0; border-radius: 0; background: transparent; color: var(--app-muted); }
@@ -467,7 +472,7 @@ input[type="checkbox"] { accent-color: var(--color-kumo-brand); }
 .activity-row:last-child { border-bottom: 0; }
 .activity-row:hover { background: var(--color-kumo-tint); }
 .activity-row > div { display: grid; min-width: 0; gap: 3px; }
-.activity-row strong { overflow: hidden; color: var(--app-text); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.activity-row strong, .activity-row__title { overflow: hidden; color: var(--app-text); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .activity-row small { overflow: hidden; color: var(--app-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .activity-row > svg { flex: 0 0 auto; color: var(--app-muted); }
 .quality-value { display: grid; gap: 2px; border-bottom: 1px solid var(--app-hairline); padding: 18px 16px; }

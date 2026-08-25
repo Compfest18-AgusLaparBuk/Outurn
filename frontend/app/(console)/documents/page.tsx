@@ -12,6 +12,7 @@ import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { ActionLink, Button } from "@/components/ui/button";
 import {
   OperationalState,
+  operationalTextLabel,
   StateNotice,
 } from "@/components/ui/operational-primitives";
 import { PageHeader } from "@/components/ui/page-header";
@@ -340,7 +341,7 @@ export default function DocumentsPage() {
                           {String(row.shipment_reference || "—")}
                         </Table.Cell>
                         <Table.Cell>
-                          {String(row.document_type || "—")}
+                          {operationalTextLabel(String(row.document_type || "—"))}
                         </Table.Cell>
                         <Table.Cell>{version(row)}</Table.Cell>
                         <Table.Cell>
@@ -359,7 +360,7 @@ export default function DocumentsPage() {
                           />
                         </Table.Cell>
                         <Table.Cell>
-                          {String(versionData?.extraction_provider || "—")}
+                          {operationalTextLabel(String(versionData?.extraction_provider || "—"))}
                         </Table.Cell>
                         <Table.Cell>
                           {date(
@@ -426,35 +427,31 @@ export default function DocumentsPage() {
               mutation.mutate();
             }}
           >
-            <label>
-              Pengiriman
-              <AppSelect
-                ariaLabel="Pilih pengiriman"
-                value={shipmentId}
-                onValueChange={setShipmentId}
-                options={[
-                  {
-                    value: "",
-                    label: shipments.isPending
-                      ? "Memuat pengiriman…"
-                      : "Pilih pengiriman",
-                  },
-                  ...(shipments.data?.items.map((shipment) => ({
-                    value: shipment.id,
-                    label: `${shipment.internal_reference} · ${shipment.origin} → ${shipment.destination}`,
-                  })) || []),
-                ]}
-              />
-            </label>
-            <label>
-              Jenis dokumen
-              <AppSelect
-                ariaLabel="Pilih jenis dokumen"
-                value={documentType}
-                onValueChange={setDocumentType}
-                options={documentTypes.slice(1)}
-              />
-            </label>
+            <AppSelect
+              ariaLabel="Pilih pengiriman"
+              label="Pengiriman"
+              value={shipmentId}
+              onValueChange={setShipmentId}
+              options={[
+                {
+                  value: "",
+                  label: shipments.isPending
+                    ? "Memuat pengiriman…"
+                    : "Pilih pengiriman",
+                },
+                ...(shipments.data?.items.map((shipment) => ({
+                  value: shipment.id,
+                  label: `${shipment.internal_reference} · ${shipment.origin} → ${shipment.destination}`,
+                })) || []),
+              ]}
+            />
+            <AppSelect
+              ariaLabel="Pilih jenis dokumen"
+              label="Jenis dokumen"
+              value={documentType}
+              onValueChange={setDocumentType}
+              options={documentTypes.slice(1)}
+            />
             <div className="cf-file-picker">
               <span>File asli</span>
               <input

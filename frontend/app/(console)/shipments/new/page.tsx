@@ -93,22 +93,20 @@ export default function NewShipmentPage() {
             onChange={update("destination")}
             placeholder="Pelanggan atau lokasi pengiriman"
           />
-          <label>
-            Moda transportasi
-            <AppSelect
-              ariaLabel="Moda transportasi"
-              value={form.transport_mode}
-              onValueChange={(transport_mode) =>
-                setForm((current) => ({ ...current, transport_mode }))
-              }
-              options={[
-                { value: "Road", label: "Darat" },
-                { value: "Sea", label: "Laut" },
-                { value: "Air", label: "Udara" },
-                { value: "Rail", label: "Rel" },
-              ]}
-            />
-          </label>
+          <AppSelect
+            ariaLabel="Moda transportasi"
+            label="Moda transportasi"
+            value={form.transport_mode}
+            onValueChange={(transport_mode) =>
+              setForm((current) => ({ ...current, transport_mode }))
+            }
+            options={[
+              { value: "Road", label: "Darat" },
+              { value: "Sea", label: "Laut" },
+              { value: "Air", label: "Udara" },
+              { value: "Rail", label: "Rel" },
+            ]}
+          />
           <Input
             label="Penerima yang diharapkan"
             description="Opsional"

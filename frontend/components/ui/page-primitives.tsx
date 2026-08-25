@@ -33,7 +33,10 @@ export function FilterBar({
   const visibleLabel =
     label && label.toLowerCase().startsWith("filter") ? "Filter:" : null;
   return (
-    <Toolbar className={join("cf-filter-bar", className)} aria-label={label}>
+    <Toolbar
+      className={join("cf-filter-bar", className)}
+      aria-label={label || "Filter"}
+    >
       {visibleLabel && (
         <span className="cf-filter-bar__label">{visibleLabel}</span>
       )}
@@ -90,7 +93,10 @@ export function SearchField({
   className?: string;
 }) {
   return (
-    <InputGroup className={join("cf-search-field", className)}>
+    <InputGroup
+      className={join("cf-search-field", className)}
+      size="base"
+    >
       <InputGroup.Addon>
         <MagnifyingGlass size={16} aria-hidden="true" />
       </InputGroup.Addon>
@@ -253,7 +259,12 @@ export function LoadingState({
   className?: string;
 }) {
   return (
-    <div className={join("cf-loading-state", className)} role="status">
+    <div
+      className={join("cf-loading-state", className)}
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+    >
       <Loader size="sm" aria-label={label} />
       <span>{label}</span>
     </div>

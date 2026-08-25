@@ -2,6 +2,7 @@
 
 import { Select as KumoSelect } from "@cloudflare/kumo/components/select";
 import { Combobox as KumoCombobox } from "@cloudflare/kumo/components/combobox";
+import type { ReactNode } from "react";
 
 export type SelectOption = {
   value: string;
@@ -10,12 +11,16 @@ export type SelectOption = {
 };
 
 type SelectProps = {
-  value: string;
+  value?: string | null;
   onValueChange: (value: string) => void;
   options: SelectOption[];
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  label?: ReactNode;
+  required?: boolean;
+  description?: ReactNode;
+  error?: string;
 };
 
 export function AppCombobox({
@@ -27,14 +32,17 @@ export function AppCombobox({
   required = false,
   disabled = false,
   className,
+  description,
+  error,
 }: SelectProps & { label?: string; required?: boolean }) {
-  const selected = options.find((option) => option.value === value);
+  const selected = options.find((option) => option.value === (value || ""));
   const items = options.filter((option) => option.value !== "");
   return (
-    <div className={className}>
+    <div className={join("cf-app-combobox", className)}>
       <KumoCombobox
         items={items}
         value={selected || undefined}
+        size="base"
         onValueChange={(next) =>
           onValueChange(
             typeof next === "object" && next !== null && "value" in next
@@ -45,6 +53,8 @@ export function AppCombobox({
         label={label}
         required={required}
         disabled={disabled}
+        description={description}
+        error={error}
       >
         <KumoCombobox.TriggerInput
           placeholder={
@@ -83,19 +93,28 @@ export function AppSelect({
   ariaLabel,
   disabled = false,
   className,
+  label,
+  required = false,
+  description,
+  error,
 }: AppSelectProps) {
   const emptyOption = options.find((option) => option.value === "");
-  const resolvedPlaceholder = placeholder || emptyOption?.label;
+  const resolvedPlaceholder = placeholder || emptyOption?.label || "Pilih opsi";
 
   return (
     <KumoSelect
       aria-label={ariaLabel}
-      className={className}
+      label={label}
+      required={required}
+      className={join("cf-app-select", className)}
       disabled={disabled}
+      size="base"
       onValueChange={(next) => {
-        if (typeof next === "string") onValueChange(next);
+        onValueChange(typeof next === "string" ? next : "");
       }}
       placeholder={resolvedPlaceholder}
+      description={description}
+      error={error}
       renderValue={(selected) => {
         return (
           options.find((option) => option.value === selected)?.label || selected
@@ -114,4 +133,8 @@ export function AppSelect({
       ))}
     </KumoSelect>
   );
+}
+
+function join(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
 }

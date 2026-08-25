@@ -237,20 +237,18 @@ export default function PartiesPage() {
                   })
                 }
               />
-              <label>
-                Peran
-                <AppSelect
-                  ariaLabel="Peran pihak"
-                  value={form.role}
-                  onValueChange={(role) => setForm({ ...form, role })}
-                  options={[
-                    { value: "SHIPPER", label: "Pengirim" },
-                    { value: "CONSIGNEE", label: "Penerima" },
-                    { value: "CARRIER", label: "Pengangkut" },
-                    { value: "OTHER", label: "Lainnya" },
-                  ]}
-                />
-              </label>
+              <AppSelect
+                ariaLabel="Peran pihak"
+                label="Peran"
+                value={form.role}
+                onValueChange={(role) => setForm({ ...form, role })}
+                options={[
+                  { value: "SHIPPER", label: "Pengirim" },
+                  { value: "CONSIGNEE", label: "Penerima" },
+                  { value: "CARRIER", label: "Pengangkut" },
+                  { value: "OTHER", label: "Lainnya" },
+                ]}
+              />
               <Input
                 label="Identifier eksternal"
                 description="Opsional"

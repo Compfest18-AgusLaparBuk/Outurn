@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/page-primitives";
 import {
   OperationalState,
+  operationalTextLabel,
   StateNotice,
 } from "@/components/ui/operational-primitives";
 import { PageHeader } from "@/components/ui/page-header";
@@ -129,7 +130,7 @@ function AuditDetailDialog({
           <div>
             <dt>Objek</dt>
             <dd>
-              {event.entity_type}
+              {operationalTextLabel(event.entity_type)}
               {event.entity_id ? ` · ${event.entity_id}` : ""}
             </dd>
           </div>
@@ -161,9 +162,9 @@ function AuditDetailDialog({
 
 export default function AuditPage() {
   const [range, setRange] = useState("7");
-  const [actorType, setActorType] = useState("all");
-  const [eventType, setEventType] = useState("all");
-  const [entityType, setEntityType] = useState("all");
+  const [actorType, setActorType] = useState("");
+  const [eventType, setEventType] = useState("");
+  const [entityType, setEntityType] = useState("");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<AuditEvent | null>(null);
   const result = useQuery({ queryKey: ["audit"], queryFn: fetchAudit });
@@ -178,7 +179,7 @@ export default function AuditPage() {
   );
   const eventOptions = useMemo(
     () => [
-      { value: "all", label: "Semua aksi" },
+      { value: "", label: "Semua aksi" },
       ...Array.from(new Set(events.map((event) => event.event_type)))
         .sort()
         .map((value) => ({ value, label: readable(value) })),
@@ -187,10 +188,10 @@ export default function AuditPage() {
   );
   const entityOptions = useMemo(
     () => [
-      { value: "all", label: "Semua objek" },
+      { value: "", label: "Semua objek" },
       ...Array.from(new Set(events.map((event) => event.entity_type)))
         .sort()
-        .map((value) => ({ value, label: value })),
+        .map((value) => ({ value, label: operationalTextLabel(value) })),
     ],
     [events],
   );
@@ -203,9 +204,9 @@ export default function AuditPage() {
     return events.filter((event) => {
       if (threshold && new Date(event.created_at).getTime() < threshold)
         return false;
-      if (actorType !== "all" && event.actor_type !== actorType) return false;
-      if (eventType !== "all" && event.event_type !== eventType) return false;
-      if (entityType !== "all" && event.entity_type !== entityType)
+      if (actorType && event.actor_type !== actorType) return false;
+      if (eventType && event.event_type !== eventType) return false;
+      if (entityType && event.entity_type !== entityType)
         return false;
       if (!needle) return true;
       return [
@@ -258,7 +259,7 @@ export default function AuditPage() {
             value={actorType}
             onValueChange={setActorType}
             options={[
-              { value: "all", label: "Semua aktor" },
+              { value: "", label: "Semua aktor" },
               { value: "user", label: "Pengguna" },
               { value: "service_account", label: "Akun layanan" },
               { value: "system", label: "Sistem" },
@@ -342,7 +343,7 @@ export default function AuditPage() {
                       <ActorIdentity event={event} />
                     </Table.Cell>
                     <Table.Cell>
-                      <span>{event.entity_type}</span>
+                      <span>{operationalTextLabel(event.entity_type)}</span>
                       {event.entity_id ? (
                         <>
                           <br />

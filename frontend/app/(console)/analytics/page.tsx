@@ -16,6 +16,7 @@ import {
   StateNotice,
 } from "@/components/ui/operational-primitives";
 import { PageHeader } from "@/components/ui/page-header";
+import { ChartSurface, CloudflarePageShell } from "@/components/ui/page-primitives";
 import { fetchAnalyticsSummary, fetchAnalyticsTimeseries } from "@/lib/api";
 
 const ranges = [
@@ -123,7 +124,7 @@ export default function AnalyticsPage() {
   };
 
   return (
-    <div className="operations-page cf-analytics-page">
+    <CloudflarePageShell className="cf-analytics-page">
       <PageHeader
         icon={ChartLine}
         title="Analytics"
@@ -208,24 +209,19 @@ export default function AnalyticsPage() {
         />
       </section>
 
-      <section className="data-panel data-panel--wide chart-panel cf-analytics-chart">
-        <div className="data-panel__header">
-          <div>
-            <h2>Aktivitas operasional</h2>
-            <p>
-              Peristiwa tersimpan per hari untuk rentang dan kelompok yang
-              dipilih.
-            </p>
-          </div>
-          <span className="cf-metadata">Workspace saat ini · {days} hari</span>
-        </div>
+      <ChartSurface
+        className="data-panel--wide cf-analytics-chart"
+        title="Aktivitas operasional"
+        description="Peristiwa tersimpan per hari untuk rentang dan kelompok yang dipilih."
+        actions={<span className="cf-metadata">Workspace saat ini · {days} hari</span>}
+      >
         <AssuranceTimeseries
           data={chartSeries}
           label="Aktivitas operasional"
           isLoading={series.isLoading}
           error={series.error instanceof Error ? series.error.message : null}
         />
-      </section>
+      </ChartSurface>
 
       <section className="cf-analytics-summary-grid">
         <div className="cf-summary-block">
@@ -278,6 +274,6 @@ export default function AnalyticsPage() {
           items={breakdowns.screening_result || []}
         />
       </section>
-    </div>
+    </CloudflarePageShell>
   );
 }
