@@ -92,34 +92,6 @@ services:
       start_period: 15s
     restart: unless-stopped
 
-  worker:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    env_file:
-      - .env
-    environment:
-      APP_ENV: production
-      COOKIE_SECURE: "true"
-      DATABASE_URL: postgresql+psycopg://outurn:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/outurn
-      CORS_ORIGINS: ${APP_PUBLIC_ORIGIN:?APP_PUBLIC_ORIGIN is required}
-      DOCUMENT_STORAGE_ROOT: /data/documents
-    command: ["python", "-m", "app.worker"]
-    volumes:
-      - outurn-documents:/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-      seed:
-        condition: service_completed_successfully
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    restart: unless-stopped
-
   frontend:
     build:
       context: .

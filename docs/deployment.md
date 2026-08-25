@@ -14,7 +14,7 @@ Caddy pada Azure VM
 Next.js console + BFF
   │ private Docker network
   ▼
-FastAPI + worker ─── PostgreSQL
+FastAPI synchronous API ─── PostgreSQL (production profile)
   │
   └── document volume
 
@@ -48,7 +48,7 @@ cp .env.production.example .env
 docker compose -f docker-compose.prod.yml up --build
 ```
 
-Compose menjalankan PostgreSQL, migration one-shot, seed user, FastAPI, worker, dan Next.js. Container menggunakan non-root user, capability yang dibatasi, named volume untuk dokumen, serta health check untuk PostgreSQL dan FastAPI.
+Compose menjalankan PostgreSQL, migration one-shot, seed user, FastAPI, dan Next.js. Pemrosesan shipment tetap synchronous pada request; tidak ada worker, queue, scheduler, atau polling service. Container menggunakan non-root user, capability yang dibatasi, named volume untuk dokumen, serta health check untuk PostgreSQL dan FastAPI.
 
 ## Bootstrap Azure
 

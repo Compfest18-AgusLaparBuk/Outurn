@@ -1,255 +1,172 @@
-# Outurn
+# Outurn — AI-Powered Pre-Dispatch Shipment Assurance
 
-### AI Innovation Challenge 2026 — Logistics & Supply Chain
+Outurn is a focused Smart Logistics MVP for warehouse and distribution teams. It checks one shipment before dispatch by reading an Invoice, Packing List, and Delivery Order; normalizing entities and addresses; reconciling critical fields; checking destination plausibility; explaining anomalies; and guiding a human through correction and revalidation.
 
-Outurn adalah console assurance pra-pengiriman yang memeriksa konsistensi **Delivery Order**, **Invoice**, dan **Packing List** sebelum shipment dapat dilepas. Fokusnya bukan membuat keputusan dari jawaban model, melainkan mengubah dokumen menjadi evidence yang dapat ditelusuri lalu menjalankan rekonsiliasi deterministik dengan hasil `CLEAR`, `REVIEW`, atau `HOLD`.
+The product answers one operational question: **is this shipment safe to release from the warehouse based on the evidence available right now?**
 
-> **Satu workflow utama:** upload → extract → ground → reconcile → approve/review.
+## Why it matters
 
-## Ringkasan Eksekutif
+Manual document comparison makes quantity mismatch, wrong SKU, wrong recipient, destination variation, and incomplete evidence easy to miss. Outurn makes those discrepancies visible before a shipment leaves the warehouse. AI extracts structured evidence, while deterministic rules keep the safety decision fail-closed.
 
-Di lapangan, satu shipment sering direpresentasikan oleh beberapa dokumen dengan format dan penulisan yang berbeda. Kesalahan kecil pada nomor dokumen, SKU, tujuan, kuantitas, atau total dapat lolos bila dokumen diperiksa terpisah.
+## AIC theme alignment
 
-Outurn menyatukan pemeriksaan itu ke satu rekam operasional. Model hanya membantu ekstraksi evidence. Sistem tetap memvalidasi file, menyimpan provenance, membandingkan field penting secara deterministik, dan meminta review manusia ketika bukti tidak lengkap atau konflik tidak aman untuk diselesaikan otomatis.
+Outurn is positioned under **AI for the Backbone of the Economy → Smart Logistics — Warehouse & Distribution**. It is not a generic document-management or transport-management system. Every screen is part of the single shipment assurance workflow.
 
-| Masalah | Pendekatan Outurn |
-|---|---|
-| Dokumen tersebar dan sulit dibandingkan | Satu shipment case dengan evidence lintas dokumen |
-| Hasil AI sulit ditelusuri | Nilai disertai sumber, confidence, dan status verifikasi |
-| Mismatch kecil berisiko menjadi false-clear | Rekonsiliasi konservatif dengan keputusan fail-closed |
-| Approval tidak memiliki jejak yang jelas | Audit trail, role enforcement, dan supervisor override yang immutable |
-
-## Fitur Utama
-
-1. **Shipment register** — membuat dan memantau case shipment dari satu console.
-2. **Three-document intake** — menerima Delivery Order, Invoice, dan Packing List dengan validasi MIME, signature, ukuran, halaman, dan pixel limit.
-3. **Evidence extraction** — menormalisasi identitas, tujuan, line item, kuantitas, dan total ke canonical shipment schema.
-4. **Evidence grounding** — menghubungkan nilai hasil ekstraksi ke sumber dokumen dan mempertahankan confidence serta provenance.
-5. **Deterministic reconciliation** — membandingkan field kritis dan line item tanpa menyerahkan keputusan release kepada model.
-6. **Release decision** — menghasilkan `CLEAR`, `REVIEW`, atau `HOLD` dengan alasan yang dapat dibaca operator.
-7. **Human review** — supervisor dapat mencatat override dengan actor, alasan, keputusan awal, keputusan akhir, dan timestamp.
-8. **Operational console** — work queue, exception, screening, dangerous goods, audit, analytics, observability, integrations, governance, dan settings.
-9. **Role-based access** — `operator`, `supervisor`, dan `admin` ditegakkan di backend; kontrol UI bukan batas keamanan.
-
-## AI/ML yang Dikustomisasi untuk Outurn
-
-Outurn tidak melakukan zero-shot API call lalu menerima hasil mentah. Lapisan adaptasinya terdiri dari:
-
-- **Local RAG playbook**: guidance domain disimpan di source code, diranking berdasarkan tipe dokumen dan istilah yang ditemukan pada teks dokumen.
-- **Forced tool calling**: provider hanya diarahkan ke function `emit_shipment_document` dengan schema field yang eksplisit.
-- **Schema dan safety validation**: payload tool divalidasi, line item wajib lengkap untuk jalur OpenRouter, dan output provider tetap diperlakukan sebagai evidence tidak tepercaya.
-- **Grounding dan deterministic gate**: evidence dikorelasikan, confidence diperiksa, lalu aturan rekonsiliasi menentukan status operasional.
-- **Human-in-the-loop**: ambiguity atau konflik material berubah menjadi `REVIEW`/`HOLD`; model tidak dapat menjalankan tool eksternal atau mengesahkan release.
-
-Konfigurasi provider berada di backend melalui `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, dan `OPENROUTER_BASE_URL`. Key tidak pernah diletakkan pada `NEXT_PUBLIC_*`, browser, fixture, atau Git.
-
-## Workflow Utama AIC
+## Main workflow
 
 ```text
-1. Upload tiga dokumen wajib
-        |
-2. Validasi file + ekstraksi dengan local RAG playbook dan forced tool
-        |
-3. Simpan evidence, provenance, confidence, dan hasil normalisasi
-        |
-4. Rekonsiliasi identitas, tujuan, item, kuantitas, dan total
-        |
-5. CLEAR / REVIEW / HOLD
-        |
-6. Supervisor review atau override tercatat pada audit trail
+Shipment intake
+  → upload Invoice + Packing List + Delivery Order
+  → AI document understanding with provenance and confidence
+  → entity and address normalization
+  → canonical shipment view and consistency matrix
+  → on-demand OpenStreetMap/Nominatim destination verification
+  → deterministic risk score and evidence-based explanation
+  → recommended corrective action
+  → replace a document and re-check synchronously
+  → CLEAR / REVIEW / HOLD
 ```
 
-Setiap tahap membutuhkan hasil tahap sebelumnya. Tidak ada menu AI yang berdiri sendiri dan tidak ada jalur yang melewati evidence atau rekonsiliasi untuk langsung mengubah status release.
+The browser uses the main `/reconcile` workspace. Replacing a document runs validation, extraction, normalization, reconciliation, geocoding, risk scoring, and the final decision again in the same request. There is no worker, queue, scheduler, or polling requirement in the local MVP.
 
-## UI dan Kumo
-
-Frontend menggunakan [Cloudflare Kumo](https://kumo-ui.com/) sebagai primitive UI utama dengan visual console yang mengikuti pola Cloudflare: sidebar rapat ke viewport, mode collapsed yang menyisakan logo/expand affordance, table operasional, page header, layer card, dan status yang konsisten.
-
-Komponen Kumo yang dipakai di source code meliputi `CloudflareLogo`, `Sidebar`, `Button`, `Badge`, `Banner`, `Checkbox`, `Collapsible`, `Combobox`, `Dialog`, `Dropdown`, `Empty`, `Grid`, `Input`, `InputGroup`, `LayerCard`, `Loader`, `Pagination`, `Select`, `Switch`, `Table`, `Tabs`, `Toolbar`, `Toast`, `Tooltip`, serta chart `TimeseriesChart`.
-
-Search global dan workspace switcher yang tidak memberi nilai pada workflow utama tidak menjadi pusat navigasi. Navigasi diarahkan ke case, evidence, assurance, keputusan, audit, dan pengaturan yang benar-benar dipakai operator.
-
-## Arsitektur Sistem
+## Architecture
 
 ```text
 Browser
-  │
-  ▼
-Next.js console + server-side BFF
-  │  HttpOnly session cookie
-  │  backend service credential tetap di server
-  ▼
-FastAPI modular monolith
-  ├── authentication, sessions, RBAC, audit, four-eyes approval
-  ├── shipment lifecycle, work queue, document storage
-  ├── extraction router, local RAG playbook, OpenRouter tool adapter
-  ├── evidence grounding, assurance rules, deterministic reconciliation
-  └── integrations, webhooks, analytics, observability
-  │
-  ├── SQLite untuk local development dan test
-  └── PostgreSQL untuk deployment production
+  ↓
+Next.js UI + server-side BFF
+  ↓
+FastAPI synchronous API
+  ├─ bounded upload and PDF/image validation
+  ├─ local extraction or server-side AI provider adapter
+  ├─ canonical evidence and provenance
+  ├─ semantic normalization and deterministic reconciliation
+  ├─ on-demand geocoding adapter with graceful fallback
+  └─ deterministic risk, explanation, and resolution audit
+  ↓
+SQLite
 ```
 
-Dokumen upload dan output provider diperlakukan sebagai input tidak tepercaya. Browser tidak menerima provider key, database password, backend service key, atau session token melalui JavaScript.
+The baseline was imported from the existing GateGuard codebase rather than rewritten from scratch. Source baseline SHA: `576b74e9006cf5618a87b048ece267d4b3cb56cb`.
 
-## Struktur Direktori
+## AI responsibilities and safety boundary
 
-```text
-.
-├── backend/
-│   ├── app/                 # API, domain, auth, extraction, reconciliation
-│   ├── alembic/             # migration database
-│   ├── scripts/             # bootstrap admin dan operational checks
-│   └── tests/               # unit, API, security, extraction, workflow tests
-├── frontend/
-│   ├── app/                 # route dan page console
-│   ├── components/          # workflow components dan Kumo wrappers
-│   ├── lib/                 # API client, access, locale, validation
-│   └── tests/               # Vitest + Testing Library
-├── evaluation/              # synthetic rule dan extraction evaluation
-├── docs/                    # architecture, quality, readiness, deployment
-├── infra/                   # Azure bootstrap, pull deployment, systemd timer
-├── samples/                 # fixture aman untuk development
-├── scripts/                 # utility repository dan sample generator
-├── docker-compose.yml       # local stack
-└── docker-compose.prod.yml  # production stack
-```
+AI/provider adapters may help with:
 
-## Teknologi dan Dependensi
+- document type and field extraction;
+- structured line-item understanding;
+- entity/address normalization guidance;
+- evidence-grounded anomaly wording when a provider is configured.
 
-| Layer | Teknologi |
-|---|---|
-| Frontend | Next.js, React, TypeScript, Tailwind CSS, Cloudflare Kumo, TanStack Query, ECharts |
-| Backend | FastAPI, Pydantic Settings, SQLAlchemy, Alembic, psycopg, uv |
-| Document pipeline | pypdf, pdfplumber, Pillow, OpenCV, RapidFuzz, OpenRouter adapter |
-| Data | SQLite untuk local/test, PostgreSQL untuk production |
-| Security | Argon2id, HttpOnly session, RBAC, rate limit, audit trail, secret store |
-| Runtime | Docker Compose, Caddy, Azure VM, systemd pull timer |
-| Quality | Pytest, Ruff, Vitest, Testing Library, Semgrep, Gitleaks, Trivy, SBOM |
+The decision engine, confidence gate, geographic classification, risk score, and `CLEAR` / `REVIEW` / `HOLD` result are deterministic. Uploaded documents are untrusted data; extraction prompts explicitly instruct providers not to follow instructions found inside documents. API keys never reach the browser.
 
-## Instalasi dan Menjalankan Aplikasi
+### Fine-tuning status — blocker is reported honestly
 
-### Prasyarat
+The repository does not contain a fabricated fine-tuned model ID or fabricated metrics. Set `AI_FINETUNED_MODEL_ID` only after a real provider fine-tuning job succeeds and the identifier is verified. Until then, the application uses the configured base/provider adapter and the competition fine-tuning requirement remains a **FINE-TUNING BLOCKER**, not a claimed pass.
 
-- Python 3.11+
-- Node.js 22+
-- `uv`
-- Docker Desktop atau Docker Engine + Compose
+The intended fine-tuning task is `shipment document → canonical structured shipment data`. See [data/fine_tuning/README.md](data/fine_tuning/README.md) for the synthetic dataset contract and limitations. The provider reference is the [OpenAI fine-tuning API](https://developers.openai.com/api/reference/resources/fine_tuning).
 
-### Cara cepat dengan Compose
+## Geospatial validation
+
+The backend uses a configurable geocoder base URL and a deliberate, end-user-triggered Nominatim adapter. It sends a descriptive User-Agent, serializes requests at no more than one request per second, caches results for the process lifetime, does not implement autocomplete, and treats unavailable or ambiguous results as `GEOCODING_UNCERTAIN` / `REVIEW`.
+
+The UI shows an OpenStreetMap embed only when coordinates are available and displays attribution. The base URL can be switched without a code change. Read the [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/) before using the public service with real operational data; do not submit confidential personal data.
+
+## Run locally with Docker
+
+Requirements: Docker Desktop or Docker Engine with Compose.
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-Console tersedia di `http://localhost:3000` dan API di `http://localhost:8000`.
+Open [http://localhost:3000](http://localhost:3000). The API health endpoints are available at [http://localhost:8000/healthz](http://localhost:8000/healthz) and [http://localhost:8000/readyz](http://localhost:8000/readyz).
 
-### Menjalankan service terpisah
+The local stack has only two application services:
+
+- `backend`: FastAPI, SQLite, bounded document storage, synchronous processing;
+- `frontend`: Next.js workspace and server-side API proxy.
+
+## Environment
+
+Copy `.env.example` to `.env`. The important values are:
+
+```text
+DATABASE_URL=sqlite:///./outurn.db
+EXTRACTION_PROVIDER=auto
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-2024-08-06
+AI_FINETUNED_MODEL_ID=
+GEOCODING_BASE_URL=https://nominatim.openstreetmap.org
+GEOCODING_USER_AGENT=Outurn/0.1 (shipment-assurance-demo)
+```
+
+Keep provider keys server-side and never commit `.env`.
+
+## Synthetic sample cases
+
+The repository includes synthetic, non-confidential fixtures:
+
+| Case | Expected result | Demonstrates |
+|---|---|---|
+| `samples/clear` | `CLEAR` | all three documents agree |
+| `samples/hold-quantity` | `HOLD` | Invoice/Delivery Order show 100 while Packing List shows 90 |
+| `samples/review-destination` | `REVIEW` or `HOLD` | destination evidence is materially different or unresolved |
+| `samples/entity-normalization` | `CLEAR` when safely equivalent | `PT. Maju Jaya` and `PT Maju Jaya` variation |
+
+Run the sample generator after installing the backend development dependencies:
+
+```bash
+python scripts/generate_samples.py
+```
+
+## Tests and quality gates
+
+Backend:
 
 ```bash
 cd backend
 uv sync --locked --extra dev
-uv run alembic upgrade head
-uv run python scripts/create_admin.py
-uv run uvicorn app.main:app --reload --port 8000
+uv run pytest -q
+uv run ruff check app tests
 ```
 
-Pada terminal lain:
+Frontend:
 
 ```bash
 cd frontend
 npm ci --include=dev
-npm run dev
-```
-
-Password, service key, dan provider key hanya diisi melalui environment lokal atau secret store. Jangan memasukkannya ke commit.
-
-## Konfigurasi dan Secret Handling
-
-File `.env.example` dan `.env.production.example` hanya berisi placeholder. Untuk Azure, `infra/bootstrap-outurn-azure.sh` membuat resource group, Key Vault dengan RBAC, VM, identity, Caddy, dan pull deployment. Secret production dimasukkan ke Key Vault lalu diambil VM menggunakan managed identity; tidak ada secret yang dikirim lewat GitHub Actions.
-
-Variable yang umum dibutuhkan:
-
-```text
-APP_ENV=development|production
-APP_PUBLIC_ORIGIN=https://your-origin.example
-DATABASE_URL=...
-APP_API_KEY=...
-WEBHOOK_SECRET_KEY=...
-OPENROUTER_API_KEY=...
-OPENROUTER_MODEL=openai/gpt-4o-mini
-```
-
-Gunakan HTTPS untuk provider base URL pada production, CORS origin eksplisit, `COOKIE_SECURE=true`, PostgreSQL, dan secret minimal 32 karakter untuk credential aplikasi.
-
-## Pengujian dan Quality Gate
-
-Perubahan tidak dianggap selesai hanya karena halaman dapat dibuka. Jalankan:
-
-```bash
-make test
-
-cd frontend
 npm test
 npm run lint
 npm run build
 ```
 
-Untuk workflow dokumen dan evaluasi:
+Compose smoke checks:
 
 ```bash
-cd backend
-uv run pytest -q tests/test_openrouter_extractor.py tests/test_adversarial_extraction.py
-uv run python ../evaluation/run.py
+docker compose config
+docker compose build
 ```
 
-UI diverifikasi pada jalur yang dipakai operator: login, collapsed sidebar, shipment register, upload tiga dokumen, evidence result, status `CLEAR`/`REVIEW`/`HOLD`, dialog override, dan navigasi audit. Smoke check browser menggunakan Playwright CLI; assertion component tetap berada pada Vitest + Testing Library agar bisa berjalan deterministik di CI.
+The intended golden path is covered by the API and UI contracts: create context, upload three documents, extract, normalize, reconcile, geocode when needed, show risk and explanation, replace a document, re-check, and observe the new final decision.
 
-CI juga memeriksa migration smoke test, Compose configuration, shell syntax, dependency audit, Semgrep, Gitleaks, Trivy, dan SBOM.
+## Submission documentation
 
-## Deployment Azure dan CI/CD
+- [AIC submission checklist](docs/aic-submission-checklist.md)
+- [Dataset and fine-tuning contract](data/fine_tuning/README.md)
+- [Architecture notes](docs/architecture.md)
 
-Deployment target menggunakan Azure VM Linux dengan PostgreSQL di Compose, Caddy sebagai TLS ingress, dan Key Vault sebagai secret store. Setelah bootstrap pertama selesai, VM menjalankan pull deployment berbasis systemd timer. Timer mengambil `main`, memeriksa perubahan, menjalankan migration, build, health check, dan hanya mengaktifkan release yang lolos.
+The checklist covers the Proof of Work video, innovation video, proposal contents, timestamp visibility, and the seven-minute/five-minute limits. Videos are not generated automatically.
 
-GitHub Actions menjalankan quality gate pada push/pull request. Pipeline tidak memakai bot publish image, registry credential, atau secret aplikasi. Polanya sengaja sederhana untuk resource Azure for Students: CI memverifikasi source, VM yang sudah memiliki managed identity menarik perubahan dari repository.
+## Limitations
 
-```text
-push / pull request
-        │
-        ▼
-GitHub Actions: test → lint → build → security scan
-        │
-        ▼
-Azure VM timer: pull → migrate → build → health check → activate
-```
+- A verified fine-tuned model is not present in this checkout; this is explicitly reported as a blocker.
+- Geocoding is conservative and can return `REVIEW` when the public service is unavailable or ambiguous.
+- Local extraction is strongest for text-based PDFs; image OCR requires a configured provider.
+- A consistent document set is not proof that the physical shipment is correct; operators must verify material exceptions.
+- This MVP does not replace a WMS, ERP, TMS, warehouse scan, or physical quantity check.
 
-Detail topology, rollback, health endpoint, dan bootstrap tersedia di [docs/deployment.md](docs/deployment.md).
+## Responsible AI
 
-## Kesesuaian dengan AIC Rulebook
-
-- **Kustomisasi model**: local RAG playbook, forced function calling, schema validation, evidence grounding, dan deterministic policy engine.
-- **Satu workflow utama**: seluruh fitur utama terhubung dari intake dokumen sampai keputusan release dan audit.
-- **Human oversight**: hasil ambiguous tidak dipaksa menjadi `CLEAR`; supervisor menjadi bagian dari jalur review.
-- **Reproducibility**: fixture, migration, evaluation script, lockfile, CI, dan security scan berada di repository.
-- **Responsible AI**: dokumen diperlakukan sebagai data tidak tepercaya; prompt injection tidak boleh mengubah policy, memanggil tool, atau membocorkan secret.
-
-## Status dan Batasan
-
-Outurn adalah submission AIC tahap penyisihan. Dataset produksi berlabel belum dipublikasikan, sehingga repository tidak mengklaim akurasi provider, false-clear rate, latency, atau cost benchmark tanpa ground truth dan manifest yang terversi.
-
-Outurn tidak menggantikan WMS/ERP/TMS, tidak memverifikasi isi fisik paket, tidak mengotorisasi pembayaran, dan tidak menjadikan konsistensi tiga dokumen sebagai bukti bahwa order tersebut benar secara eksternal.
-
-## Roadmap
-
-1. Menambah fixture dokumen berlabel dan redacted untuk benchmark extraction.
-2. Menambah review queue yang diprioritaskan berdasarkan risiko dan confidence.
-3. Menghubungkan referensi shipment tepercaya dari WMS/ERP.
-4. Mengukur false-clear rate dengan dataset yang memiliki reviewer label.
-5. Menambahkan object storage adapter setelah kebutuhan scale-out disetujui.
-
-## Kontribusi dan Lisensi
-
-Sebelum mengubah source, baca [CONTRIBUTING.md](CONTRIBUTING.md), [architecture guide](docs/architecture.md), dan [security policy](SECURITY.md). Jangan commit credential, dokumen pelanggan, log production, atau screenshot yang berisi data sensitif.
-
-Lisensi dan ketentuan submission mengikuti aturan yang ditetapkan oleh tim dan penyelenggara AIC.
+Outurn does not let an LLM authorize dispatch. It preserves raw values, normalized values, confidence, provider, and evidence regions; rejects invalid structured output; limits uploaded files; treats documents as prompt-injection input; and fails closed when evidence is incomplete or contradictory.
