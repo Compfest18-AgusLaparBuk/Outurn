@@ -34,7 +34,8 @@ Mulai dari `.env.production.example` dan ganti seluruh placeholder. Production m
 - `WEBHOOK_SECRET_KEY` minimal 32 karakter;
 - `COOKIE_SECURE=true`;
 - `POSTGRES_PASSWORD` dan `DATABASE_URL` PostgreSQL;
-- `OPENROUTER_API_KEY` hanya bila ekstraksi OpenRouter digunakan.
+- `EXTRACTION_PROVIDER=openrouter` untuk jalur extraction MVP;
+- `OPENROUTER_API_KEY` diisi dengan key OpenRouter dan `OPENROUTER_MODEL=stealth/ox-alpha`.
 
 `APP_API_KEY` adalah credential server-to-server yang hanya digunakan oleh Next.js BFF. Autentikasi manusia memakai user database dan opaque session cookie; tidak ada shared supervisor credential.
 

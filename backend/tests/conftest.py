@@ -7,6 +7,9 @@ from sqlalchemy import select
 os.environ["DATABASE_URL"] = (
     f"sqlite:///{Path(os.getenv('TEMP', '.')) / f'outurn-tests-{uuid4().hex}.db'}"
 )
+# Keep the API test suite deterministic and offline even when the developer's
+# local .env selects a real external provider.
+os.environ["EXTRACTION_PROVIDER"] = "local"
 
 from app.auth.passwords import hash_password
 from app.core.config import get_settings

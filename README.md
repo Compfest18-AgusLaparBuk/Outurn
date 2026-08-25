@@ -94,7 +94,10 @@ Copy `.env.example` to `.env`. The important values are:
 
 ```text
 DATABASE_URL=sqlite:///./outurn.db
-EXTRACTION_PROVIDER=auto
+EXTRACTION_PROVIDER=openrouter
+OPENROUTER_API_KEY=replace-with-your-openrouter-key
+OPENROUTER_MODEL=stealth/ox-alpha
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-2024-08-06
 AI_FINETUNED_MODEL_ID=
